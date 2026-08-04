@@ -1,0 +1,32 @@
+# db.php benchmark — TREATMENT lane: the Turso engine (experimental).
+#
+# Byte-identical to turso.toml except `[db.sqlite] engine`. Everything
+# that could confound the A/B is pinned here rather than inherited:
+#
+#  * The rate limiter is effectively disabled. The image's baked
+#    tests/ephpm-test.toml sets per_ip_rate = 500, and a single-IP load
+#    test against that measures the limiter, not the server
+#    (methodology.md trap #1). Every cell is verified 100% 2xx anyway.
+#  * query_stats is OFF. TrackedBackend wraps the litewire backend to
+#    record per-digest stats; leaving it on would tax both lanes, but it
+#    taxes the *wire path* specifically — exactly what db.php measures.
+
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+index_files = ["index.php", "index.html"]
+
+[server.limits]
+max_connections = 1024
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[php]
+mode = "fpm"
+
+[db.sqlite]
+path = "/data/bench.db"
+engine = "turso"
+
+[db.analysis]
+query_stats = false

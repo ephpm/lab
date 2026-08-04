@@ -1,0 +1,49 @@
+# Lane D, node 1 -- CLUSTERED Turso via CDC-native replication.
+#
+# engine = "turso" + [cluster] enabled is a hard startup ERROR unless
+# cdc_experimental = true. With it set, no sqld child process is spawned:
+# the primary runs a per-subscriber CdcTailer and ships batches over the
+# yamux-multiplexed cluster channel, every post-handshake byte sealed
+# with ChaCha20-Poly1305 keyed off [cluster] secret.
+#
+# Addresses are STATIC (podman --ip on 10.89.1.0/24) because clustered
+# CDC refuses to start when both [cluster] bind and [cluster.channel]
+# listen are unspecified (0.0.0.0) -- it would have no dialable address
+# to advertise to replicas. That is a deliberate fail-closed guard.
+#
+# Channel port is 7948, NOT 7947: the KV data plane already binds 7947
+# by default and the two collide with "Address already in use".
+
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+index_files = ["index.php", "index.html"]
+
+[server.limits]
+max_connections = 1024
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[php]
+mode = "fpm"
+
+[db.sqlite]
+path = "/data/bench.db"
+engine = "turso"
+
+[db.sqlite.replication]
+role = "primary"
+cdc_experimental = true
+
+[db.analysis]
+query_stats = false
+
+[cluster]
+enabled = true
+bind = "10.89.1.11:7946"
+node_id = "node-1"
+cluster_id = "dbbench"
+secret = "bench-only-not-a-real-secret-000000000000"
+
+[cluster.channel]
+listen = "10.89.1.11:7948"

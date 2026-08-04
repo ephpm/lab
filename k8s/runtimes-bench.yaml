@@ -97,8 +97,8 @@ data:
 # ---------------------------------------------------------------------------
 # ePHPm config variant: EXPERIMENTAL Turso Database engine for the db lane.
 # Identical to bench-ephpm-config except [db.sqlite] engine = "turso".
-# Requires an ePHPm image NEWER than v0.5.0 (the engine knob merged after
-# the v0.5.0 tag) — see the bench-ephpm-turso Deployment comment.
+# The engine knob shipped in v0.6.0, which this manifest now pins, so the
+# lane is live — see the bench-ephpm-turso Deployment comment.
 # ---------------------------------------------------------------------------
 ---
 apiVersion: v1
@@ -407,7 +407,7 @@ spec:
     spec:
       containers:
       - name: ephpm
-        image: ephpm/ephpm:v0.5.0-php8.4
+        image: ephpm/ephpm:v0.6.0-php8.4
         ports:
         - containerPort: 8080
         resources:
@@ -454,15 +454,16 @@ spec:
     targetPort: 8080
 
 # ---------------------------------------------------------------------------
-# 1b. ePHPm + EXPERIMENTAL Turso engine — db lane only. DISABLED by default
-#     (replicas: 0): the `[db.sqlite] engine` knob merged AFTER the v0.5.0
-#     tag, so the pinned image rejects/ignores it. Enable ONLY when the
-#     image pin moves past v0.5.0:
-#       kubectl scale deploy/bench-ephpm-turso -n runtimes-bench --replicas=1
+# 1b. ePHPm + EXPERIMENTAL Turso engine — db lane only. The `[db.sqlite]
+#     engine` knob shipped in v0.6.0, which this manifest now pins, so the
+#     lane is enabled (replicas: 1).
 #     Verify the engine actually engaged before trusting any number: the
 #     pod log must show the experimental-engine startup warning. Then run
 #     the db.php k6 profile against http://bench-ephpm-turso:8080/db.php
 #     and compare against the bench-ephpm lane's db.php result.
+#     The engine is still upstream-Beta and single-node only; ePHPm rejects
+#     `engine = "turso"` combined with clustered SQLite at startup. For the
+#     single-host measurement of the same question, see DB-BENCH.md.
 # ---------------------------------------------------------------------------
 ---
 apiVersion: apps/v1
@@ -474,7 +475,7 @@ metadata:
     bench-class: a
     runtime: ephpm-turso
 spec:
-  replicas: 0
+  replicas: 1
   selector:
     matchLabels:
       app: bench-ephpm-turso
@@ -487,7 +488,7 @@ spec:
     spec:
       containers:
       - name: ephpm
-        image: ephpm/ephpm:v0.5.0-php8.4
+        image: ephpm/ephpm:v0.6.0-php8.4
         ports:
         - containerPort: 8080
         resources:
@@ -1240,7 +1241,7 @@ spec:
     spec:
       containers:
       - name: ephpm
-        image: ephpm/ephpm:v0.5.0-php8.4
+        image: ephpm/ephpm:v0.6.0-php8.4
         ports:
         - containerPort: 8080
         resources:

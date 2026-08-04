@@ -40,6 +40,38 @@ In this one sequential dedicated-node run, ePHPm request mode was the fastest va
 
 ![WordPress WooCommerce normal-request comparison](docs/assets/wordpress-v5-browse.svg)
 
+### The Database Path
+
+Measured on a different tier from everything above: one host, podman, `--cpus 1`,
+`oha`. The effects here are microseconds wide, so a cluster run would be less
+sensitive, not more realistic. Never read these next to a k6 number.
+
+ePHPm's database proxy inserts an extra wire hop between PHP and the database in
+order to pool backend connections. Both halves of that trade are now measurable
+— on v0.6.0 they were not, because two pool defects made every pooled lane
+return HTTP 500 at 876 requests per second:
+
+| `db.php` (10 sequential SELECTs), c=1 | RPS | p50 |
+| --- | ---: | ---: |
+| PHP → litewire, no proxy | 323 / 323 | 3.05 ms |
+| PHP → proxy (no reuse) → litewire | 218 / 217 | 4.53 ms |
+| PHP → proxy (pooled) → litewire | 249 / 249 | 3.97 ms |
+
+The middle row is the honest cost of the hop: about 1.5 ms per request. The
+bottom row is what reusing an authenticated backend session gives back — some
+of it, not all. At c=1 the proxy is still a net loss on the MySQL wire
+(−19 % to −23 % vs no proxy at all).
+
+At c=16 it inverts: litewire +44 %, `mysql:8` +36 %, `postgres:16` +117 %. The
+proxy buys **concurrency headroom, not single-request latency**. PostgreSQL is
+the exception that wins at both, because the proxy takes a per-request
+SCRAM-SHA-256 handshake off PHP — the direct PG path does not scale at all
+(104 → 97 RPS from c=1 to c=16).
+
+The full four-upstream matrix, the two pool defects, and the PostgreSQL
+pool-exhaustion cliff that v0.6.1 removed are in
+[the v0.6.1 database matrix](docs/ephpm-0.6.1-db-matrix.md).
+
 ### Clustered OPcache Invalidation
 
 One `ephpm deploy` invalidated OPcache across two ePHPm pods without rolling PHP processes. The PHP-FPM comparison used a rolling restart, which remained available but took longer at every recorded latency percentile.
@@ -71,12 +103,16 @@ One `ephpm deploy` invalidated OPcache across two ePHPm pods without rolling PHP
 | v4 pressure | Same Laravel workload | FPM/Redis/Predis vs ePHPm worker/native KV | ePHPm worker held `159.27/s` of a `160/s` target; FPM held `100.02/s`. |
 | OPcache | Two-pod deploy invalidation | ePHPm deploy vs FPM rolling restart | ePHPm won latency and avoided rolling PHP processes. |
 | v5 dedicated | Plugin-heavy WordPress/WooCommerce browse | FPM/nginx/phpredis/Redis vs ePHPm request/native KV vs ePHPm worker/native KV | ePHPm request led: 960 completed, zero drops, 192ms average, 246ms p95. FPM sustained the rate closely; worker needs tuning. |
+| db engines | 10 sequential PDO queries / 1 INSERT | ePHPm SQLite vs Turso, single-node vs clustered sqld | Single-node is sound; clustered sqld completed zero requests at 16 concurrent writes until `write_permits = 1` (v0.6.1). |
+| db proxy | Same fixtures, four upstreams | ePHPm DB proxy pooled vs unpooled vs no proxy | Hop costs 1.3–2.2 ms; pooling wins at c=16, loses at c=1 on the MySQL wire. Two v0.6.0 pool defects fixed in v0.6.1. |
 
-Raw data, workload details, and the original test narrative live in [the WordPress v5 report](docs/wordpress-v5.md), [the 0.4.0 retest report](docs/ephpm-0.4.0-retest.md), [the OPcache follow-up](docs/follow-up-opcache.md), and [the chronological lab report](docs/ephpm-vs-php-fpm-lab-report.md).
+Raw data, workload details, and the original test narrative live in [the WordPress v5 report](docs/wordpress-v5.md), [the 0.4.0 retest report](docs/ephpm-0.4.0-retest.md), [the OPcache follow-up](docs/follow-up-opcache.md), [the v0.6.0 database matrix](docs/ephpm-0.6.1-db-matrix.md), and [the chronological lab report](docs/ephpm-vs-php-fpm-lab-report.md).
 
 ## Reproduce It
 
 The manifests are plain Kubernetes YAML and the load generator is k6. Start with the [reproduction guide](docs/reproduction.md) for the exact sequence, then inspect the [manifest map](k8s/README.md) for the workload files.
+
+The database suites are the exception: they run on a single host under podman, because the effects they measure are tens of microseconds wide and cluster jitter is larger than the signal. See [DB-BENCH.md](DB-BENCH.md) for that tier and `./scripts/run-db-bench.sh` to drive it. Never put a number from that tier in a table with a k6 number from `k8s/`.
 
 ## What Comes Next
 

@@ -7,6 +7,12 @@ apps/
 tmp/
 *.tmp
 
+# Raw oha output from the podman database suites (DB-BENCH.md). Kept
+# locally so a summary-script filtering bug can never silently discard a
+# measurement, but far too large and too host-specific to commit. The
+# tables in DB-BENCH.md and docs/ephpm-0.6.0-db-matrix.md are the record.
+db/results-*/
+
 # Local Kubernetes access and credentials.
 kubeconfig*
 *.kubeconfig

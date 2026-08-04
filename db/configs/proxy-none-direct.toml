@@ -1,0 +1,21 @@
+# Proxy benchmark lane. Everything that could confound the comparison is
+# pinned here rather than inherited from the image's baked test config:
+#  * rate limiter effectively disabled (a single-IP load test against
+#    per_ip_rate=500 measures the limiter, not the server)
+#  * query_stats OFF (TrackedBackend taxes the wire path specifically)
+
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+index_files = ["index.php", "index.html"]
+
+[server.limits]
+max_connections = 1024
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[php]
+mode = "fpm"
+
+[db.analysis]
+query_stats = false

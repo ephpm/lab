@@ -1,0 +1,46 @@
+# Lane D, node 2 -- CLUSTERED Turso replica (CDC-native).
+#
+# Dials the primary's cluster channel, announces its applied watermark in
+# the first Subscribe frame, and applies batches via apply_batch. No sqld,
+# no child process, no gRPC.
+
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+index_files = ["index.php", "index.html"]
+
+[server.limits]
+max_connections = 1024
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[php]
+mode = "fpm"
+
+[db.sqlite]
+path = "/data/bench.db"
+engine = "turso"
+
+[db.sqlite.replication]
+role = "replica"
+cdc_experimental = true
+# In CDC-native mode this field is REUSED to carry the primary's cluster
+# CHANNEL address (host:port, no scheme) -- not a gRPC URL, because no
+# sqld and no gRPC exist on this path. Omitting it is a hard startup
+# error, which is how the first run of this lane was caught benchmarking
+# a lone primary.
+primary_grpc_url = "10.89.1.11:7948"
+
+[db.analysis]
+query_stats = false
+
+[cluster]
+enabled = true
+bind = "10.89.1.12:7946"
+join = ["10.89.1.11:7946"]
+node_id = "node-2"
+cluster_id = "dbbench"
+secret = "bench-only-not-a-real-secret-000000000000"
+
+[cluster.channel]
+listen = "10.89.1.12:7948"

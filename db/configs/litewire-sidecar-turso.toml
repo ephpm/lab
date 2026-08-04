@@ -1,0 +1,19 @@
+# litewire-only node: no PHP traffic, no proxy. Exposes the SQLite MySQL
+# wire frontend on the container network so another ephpm can reach it.
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+
+[server.limits]
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[db.sqlite]
+path = "/data/bench.db"
+engine = "turso"
+
+[db.sqlite.proxy]
+mysql_listen = "0.0.0.0:3306"
+
+[db.analysis]
+query_stats = false

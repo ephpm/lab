@@ -526,7 +526,7 @@ spec:
           # on PHP 8.4. mb_split()/mb_ereg*() (Laravel's Str helpers) are
           # also compiled in from this release on - the shim in
           # prepare-app.sh is no longer required.
-          image: ephpm/ephpm:v0.5.0-php8.4
+          image: ephpm/ephpm:v0.6.0-php8.4
           command: ["sh", "/scripts/ephpm-start.sh"]
           ports:
             - containerPort: 8080
@@ -607,7 +607,7 @@ spec:
               mountPath: /scripts
       containers:
         - name: ephpm-worker
-          image: ephpm/ephpm:v0.5.0-php8.4
+          image: ephpm/ephpm:v0.6.0-php8.4
           command: ["sh", "/scripts/ephpm-worker-start.sh"]
           ports:
             - containerPort: 8080

@@ -1,0 +1,41 @@
+# Lane C, node 1 -- CLUSTERED SQLite via the sqld sidecar.
+#
+# engine = "sqlite" + [cluster] enabled -> is_clustered_sqlite() true via
+# replication.role = "primary", so ephpm spawns sqld as a child process
+# and litewire talks to it. This is the CURRENT production clustered path.
+#
+# Rate limiter effectively off and query_stats off, identical to the
+# single-node lanes, so C is comparable to A.
+
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+index_files = ["index.php", "index.html"]
+
+[server.limits]
+max_connections = 1024
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[php]
+mode = "fpm"
+
+[db.sqlite]
+path = "/data/bench.db"
+engine = "sqlite"
+
+[db.sqlite.sqld]
+write_permits = 1
+
+[db.sqlite.replication]
+role = "primary"
+
+[db.analysis]
+query_stats = false
+
+[cluster]
+enabled = true
+bind = "10.89.1.11:7946"
+node_id = "node-1"
+cluster_id = "dbbench"
+secret = "bench-only-not-a-real-secret-000000000000"
