@@ -26,16 +26,13 @@ answer *"what throughput will production see"* — the Kubernetes suites are sti
 the place for that, and the two tiers must never be put in the same table.
 
 > **Which image these numbers need.** The proxy results below require a build
-> with the v0.6.1 pool fixes (ePHPm main `bdc9861` or later). **v0.6.1 is not
-> released yet**, so the harness defaults to the newest published image,
-> `ephpm/ephpm:v0.6.0-php8.5` — and on that image the pooled lanes reproduce
-> the two defects rather than the numbers. To reproduce the proxy tables,
-> override the image with a build from main:
->
-> ```bash
-> podman build -f docker/Dockerfile -t ephpm:v061-rc .   # in an ephpm checkout
-> EPHPM_IMAGE=localhost/ephpm:v061-rc ./scripts/run-db-bench.sh proxy
-> ```
+> with the v0.6.1 pool fixes (ePHPm main `bdc9861` or later). The harness now
+> defaults to `ephpm/ephpm:v0.6.3-php8.5`, which contains those fixes, the
+> `write_permits` admission knob, and the `ephpm_db_*` in-process bridge — so
+> every suite in this file, including `bridge`, runs on the default image. On
+> anything older than v0.6.1 the pooled lanes reproduce the two defects rather
+> than the numbers, and on anything older than v0.6.3 the `bridge` suite fails
+> its function-registration gate.
 
 ## Suites
 
@@ -47,9 +44,10 @@ the place for that, and the two tiers must never be put in the same table.
 
 ```bash
 ./scripts/run-db-bench.sh engines
-./scripts/run-db-bench.sh admission        # needs a v0.6.1 build
+./scripts/run-db-bench.sh admission        # needs v0.6.1+ (default image is fine)
 ./scripts/run-db-bench.sh proxy
-./scripts/run-db-bench.sh all --image docker.io/ephpm/ephpm:v0.6.0-php8.5
+./scripts/run-db-bench.sh bridge           # needs v0.6.3+ (ephpm_db_* functions)
+./scripts/run-db-bench.sh all --image docker.io/ephpm/ephpm:v0.6.3-php8.5
 ```
 
 ## Fixtures

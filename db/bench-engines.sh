@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full db benchmark matrix for v0.6.0.
+# Full db benchmark matrix (engines x clustering).
 #
 #   A  sqlite  single    rusqlite in-process (production default)
 #   B  turso   single    Turso engine in-process (experimental)
@@ -17,7 +17,7 @@
 # measurement again.
 set -uo pipefail
 
-IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.0-php8.5}"
+IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
 OHA=ghcr.io/hatoo/oha:latest
 CURL=docker.io/curlimages/curl:latest
 NET=dbbench-net

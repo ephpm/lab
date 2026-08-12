@@ -30,7 +30,7 @@
 # /usr/bin/grep explicitly. Raw oha output is kept per cell regardless.
 set -uo pipefail
 
-BASE_IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.0-php8.5}"
+BASE_IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
 ADM_IMG="${EPHPM_ADMISSION_IMAGE:-localhost/ephpm:sqld-admission}"
 OHA=ghcr.io/hatoo/oha:latest
 CURL=docker.io/curlimages/curl:latest

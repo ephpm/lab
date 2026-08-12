@@ -31,7 +31,7 @@ SUITE="${1:-}"
 [ -n "$SUITE" ] || { sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 2; }
 shift
 
-IMAGE="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.0-php8.5}"
+IMAGE="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
 DUR="${DUR:-15s}"
 REPS="${REPS:-2}"
 while [ $# -gt 0 ]; do
