@@ -1,0 +1,36 @@
+# WordPress drop-in benchmark — Turso engine lane (experimental).
+#
+# Byte-identical to wp-bridge-sqlite.toml except `[db.sqlite] engine`.
+# See that file for the lane description and knob rationale.
+
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+index_files = ["index.php"]
+fallback = ["$uri", "$uri/", "/index.php"]
+
+[server.request]
+max_body_size = 16777216
+trusted_hosts = ["wpbridge", "wpbridge:8080", "localhost", "127.0.0.1"]
+
+[server.limits]
+max_connections = 1024
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[php]
+mode = "fpm"
+memory_limit = "512M"
+
+[db.sqlite]
+path = "/data/wp.db"
+engine = "turso"
+
+[db.sqlite.proxy]
+# 0.0.0.0 (not the 127.0.0.1 default) because the wp-cli setup container
+# installs WordPress THROUGH this frontend from across the podman
+# network. The serving path itself only ever dials 127.0.0.1:3306.
+mysql_listen = "0.0.0.0:3306"
+
+[db.analysis]
+query_stats = false

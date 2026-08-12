@@ -1,0 +1,46 @@
+# WordPress drop-in benchmark — rusqlite engine lane.
+#
+# One ePHPm node serving WordPress from /var/www/html with the embedded
+# SQLite database. The SAME container serves both cells of the lane:
+# first with WordPress talking mysqli -> 127.0.0.1:3306 (litewire wire
+# frontend), then with the ephpm/db-wordpress drop-in
+# (wp-content/db.php) routing wpdb through ephpm_db_query()/
+# ephpm_db_execute(). Only wp-content/db.php changes between cells.
+#
+# Byte-identical to wp-bridge-turso.toml except `[db.sqlite] engine`.
+# Rate limiter effectively disabled and query_stats off for the same
+# reasons as the other db-suite configs: a single-IP load test against a
+# per-IP limiter measures the limiter, and TrackedBackend taxes the
+# database path — exactly what these lanes measure.
+
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+index_files = ["index.php"]
+fallback = ["$uri", "$uri/", "/index.php"]
+
+[server.request]
+max_body_size = 16777216
+trusted_hosts = ["wpbridge", "wpbridge:8080", "localhost", "127.0.0.1"]
+
+[server.limits]
+max_connections = 1024
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[php]
+mode = "fpm"
+memory_limit = "512M"
+
+[db.sqlite]
+path = "/data/wp.db"
+engine = "sqlite"
+
+[db.sqlite.proxy]
+# 0.0.0.0 (not the 127.0.0.1 default) because the wp-cli setup container
+# installs WordPress THROUGH this frontend from across the podman
+# network. The serving path itself only ever dials 127.0.0.1:3306.
+mysql_listen = "0.0.0.0:3306"
+
+[db.analysis]
+query_stats = false

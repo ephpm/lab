@@ -41,12 +41,15 @@ the place for that, and the two tiers must never be put in the same table.
 | `engines` | rusqlite vs Turso, single-node vs clustered sqld | Published image |
 | `admission` | Does bounded write admission fix the clustered write collapse? | v0.6.1+ (knob merged in ephpm#222) |
 | `proxy` | What does the DB proxy cost (a hop) and buy (pooling)? | v0.6.1+ (pool fixes in ephpm#221) |
+| `bridge` | What does skipping the wire entirely buy? `ephpm_db_*` vs pdo_mysql, per engine | v0.6.3+ (bridge shipped in ephpm#257/#258) |
+| `wp-bridge` | Does the bridge move a real app? WordPress with the db-wordpress drop-in vs mysqli | v0.6.3+ |
 
 ```bash
 ./scripts/run-db-bench.sh engines
 ./scripts/run-db-bench.sh admission        # needs v0.6.1+ (default image is fine)
 ./scripts/run-db-bench.sh proxy
 ./scripts/run-db-bench.sh bridge           # needs v0.6.3+ (ephpm_db_* functions)
+./scripts/run-db-bench.sh wp-bridge        # needs v0.6.3+ and network on first run
 ./scripts/run-db-bench.sh all --image docker.io/ephpm/ephpm:v0.6.3-php8.5
 ```
 
@@ -69,6 +72,14 @@ a database named in the DSN, litewire has an implicit one). The connection code
 is **inlined** in each fixture rather than `require`d from a shared file — an
 include is per-request work the litewire lanes would not otherwise do, and a
 lane-vs-lane comparison should not carry it.
+
+The `bridge` suite adds a third workload, **wide-select** (one `SELECT`
+returning 100 rows × 8 columns), and a bridge twin for each of the three
+(`db/fixtures/bridge/{point,write,wide}.php`) — same SQL text, same tables,
+through `ephpm_db_query()`/`ephpm_db_execute()` instead of PDO. Seed data is
+deterministic by construction (values are fixed functions of the row id — a
+"fixed seed" with no RNG to misreport), and every table is dropped and
+re-created per lane.
 
 ## Gates
 
@@ -154,6 +165,57 @@ relayed to the pooled backend, and a permit-accounting deadlock it was masking
 that nearly became a headline, is in
 [docs/ephpm-0.6.1-db-matrix.md](docs/ephpm-0.6.1-db-matrix.md).
 
+## The Bridge Suites (`bridge`, `wp-bridge`)
+
+v0.6.3 ships the in-process DB bridge
+([ephpm#257](https://github.com/ephpm/ephpm/pull/257) /
+[#258](https://github.com/ephpm/ephpm/pull/258)): `ephpm_db_query()` and
+`ephpm_db_execute()`, registered whenever `[db.sqlite]` is active, executing
+SQL through a per-thread litewire Session against the **same backend instance
+the MySQL wire frontend serves**. Same dialect translation, same
+`SHOW`/`information_schema` emulation, same error mapping — no TCP, no PDO, no
+resultset protocol.
+
+The `bridge` suite measures what that deletion is worth. One container per
+engine (rusqlite and Turso, `single-sqlite.toml` / `single-turso.toml`), six
+cells each: {point-select, insert, wide-select} × {wire, bridge}. Wire and
+bridge cells run against the **same process**, so nothing differs but the
+path. The wire cells keep their per-request PDO connect deliberately — that is
+what a real PHP request pays without persistent connections, and removing it
+is the bridge's whole pitch, not a confound. Warmup and reps are identical to
+the other suites; `db/parse.sh` reports p50/p95/p99 per cell.
+
+Its gates, beyond the usual ones: `bridge/seed.php` fails the lane loudly if
+the `ephpm_db_*` functions are not registered (an older image would otherwise
+404-or-fallback its way into a mislabelled lane), and the wide table is
+written **through the bridge** then read back **over the wire**, proving both
+paths hit the same backend rather than two databases wearing one label.
+
+The `wp-bridge` suite asks whether any of this moves a real application.
+WordPress is installed through the wire frontend (wp-cli → mysqli → litewire,
+the same bootstrap as the
+[turso-cluster-e2e demo](https://github.com/ephpm/turso-cluster-e2e)) with
+deterministic content, then the front page and a single-post page are measured
+twice per engine: stock mysqli `wpdb`, and the
+[ephpm/db-wordpress](https://github.com/ephpm/db-wordpress) drop-in
+(`wp-content/db.php`) routing `wpdb` through the bridge. The only difference
+between the two cells is the drop-in file. Because the drop-in is designed to
+**fall back to mysqli silently** when anything is off, every cell is gated on
+an `X-Db-Driver` response header emitted by a mu-plugin (present in both
+cells): `wpdb` for the wire cells, `Ephpm\Db\WordPress\Db` for the bridge
+cells. A fallen-back bridge cell fails the gate instead of benchmarking the
+wire path under the wrong label.
+
+**No lab numbers yet.** These suites landed with the v0.6.3 pin bump and have
+not been recorded with this harness. For scale, the ephpm-side development
+benches this week (dev box, WSL, LTO off — *not* this harness, *not* the
+published image, do not put them in a table with anything above): a bridge
+point-select ran ~61 µs on rusqlite and ~3.4 µs on the Turso engine, against
+roughly 200 µs for the same query over the wire path, and WordPress pages
+rendered 10–16% faster with the drop-in. Treat those as the hypothesis this
+suite exists to check on a published image, not as results. Reference numbers
+will be recorded on `ephpm/ephpm:v0.6.3-php8.5` and added here.
+
 ## Caveats
 
 - **`--cpus 1` is the point, not a limitation.** These fixtures are dominated by
@@ -199,12 +261,16 @@ scripts/run-db-bench.sh      Driver: picks a suite, sets image/duration, parses
 db/bench-engines.sh          4-lane engine + clustering matrix
 db/bench-admission.sh        sqld write-admission sweep (prototype image)
 db/bench-proxy.sh            Proxy cost/benefit matrix
+db/bench-bridge.sh           In-process ephpm_db_* vs MySQL wire, per engine
+db/bench-wordpress-bridge.sh WordPress: db-wordpress drop-in vs mysqli wire
 db/parse.sh                  Shared results parser with response accounting
 db/probe-clean-vs-dirty.sh   Mechanism probe: pooled-connection poisoning
 db/probe-reset.sh            Mechanism probe: COM_RESET_CONNECTION against a pooled backend
 db/probe-pg.sh               Mechanism probe: does pdo_pgsql pin the session?
 db/configs/*.toml            One file per lane; pairs differ in as few keys as possible
 db/fixtures/{sqlite,mysql,postgres}/*.php
+db/fixtures/bridge/*.php     ephpm_db_* twins of the sqlite fixtures + wide-select
+db/fixtures/wp/*.php         WordPress mu-plugin gates (X-Db-Driver)
 db/results-*/                Raw oha output (gitignored) — keep it locally
 ```
 

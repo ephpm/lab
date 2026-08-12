@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Parse an oha results directory into a table: RPS, p50, p99, and full
-# response accounting.
+# Parse an oha results directory into a table: RPS, p50, p95, p99, and
+# full response accounting.
 #
 #   ./parse.sh results-proxy
 #
@@ -23,18 +23,31 @@ G=/usr/bin/grep
 DIR="${1:-results}"
 cd "$(dirname "$0")/$DIR" 2>/dev/null || { echo "no such results dir: $DIR" >&2; exit 1; }
 
-printf '%-24s %-6s %-5s %-3s %10s %12s %12s %9s  %s\n' \
-  LANE FIX CONC REP RPS p50 p99 DONE STATUS
+printf '%-18s %-13s %-5s %-3s %10s %12s %12s %12s %9s  %s\n' \
+  LANE FIX CONC REP RPS p50 p95 p99 DONE STATUS
 for f in *-c*-r*.txt; do
   [ -e "$f" ] || continue
   base="${f%.txt}"
-  lane="${base%%-db-*}"; lane="${lane%%-write-*}"
-  fix=db; case "$base" in *-write-*) fix=write;; esac
+  stem="$(echo "$base" | sed 's/-c[0-9]*-r[0-9]*$//')"
+  # The fixture/cell is the known suffix; everything before it is the
+  # lane. Longest suffixes first so `bridge-write` never parses as
+  # `write`. Legacy names (db, write) come from the engines/proxy/
+  # admission suites; the prefixed names from bridge and wp-bridge.
+  fix=""
+  for cand in wire-point bridge-point wire-write bridge-write \
+              wire-wide bridge-wide wire-home bridge-home \
+              wire-post bridge-post write db; do
+    case "$stem" in
+      *-"$cand") fix="$cand"; lane="${stem%-"$cand"}"; break ;;
+    esac
+  done
+  [ -n "$fix" ] || { lane="$stem"; fix='?'; }
   conc="$(echo "$base" | sed -n 's/.*-c\([0-9]*\)-r[0-9]*/\1/p')"
   rep="$(echo  "$base" | sed -n 's/.*-r\([0-9]*\)$/\1/p')"
 
   rps="$("$G" -E '^  Requests/sec:' "$f" | head -1 | awk '{print $2}')"
   p50="$("$G" -E '^  50\.00% in ' "$f" | head -1 | sed 's/^  50\.00% in //')"
+  p95="$("$G" -E '^  95\.00% in ' "$f" | head -1 | sed 's/^  95\.00% in //')"
   p99="$("$G" -E '^  99\.00% in ' "$f" | head -1 | sed 's/^  99\.00% in //')"
 
   ok="$( "$G" -E '^  \[200\] ' "$f" | awk '{print $2}')"
@@ -47,6 +60,6 @@ for f in *-c*-r*.txt; do
   [ -n "$err" ] && status="$status ERR:$err"
   if [ -n "$bad" ] || [ -n "$err" ] || [ "${ok:-0}" = "0" ]; then status="!! $status"; fi
 
-  printf '%-24s %-6s %-5s %-3s %10s %12s %12s %9s  %s\n' \
-    "$lane" "$fix" "$conc" "$rep" "${rps:-?}" "${p50:-?}" "${p99:-?}" "${ok:-?}" "$status"
+  printf '%-18s %-13s %-5s %-3s %10s %12s %12s %12s %9s  %s\n' \
+    "$lane" "$fix" "$conc" "$rep" "${rps:-?}" "${p50:-?}" "${p95:-?}" "${p99:-?}" "${ok:-?}" "$status"
 done | sort

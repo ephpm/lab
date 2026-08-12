@@ -8,7 +8,9 @@
 #   suite = engines     4-lane SQLite/Turso matrix (single-node vs clustered)
 #           admission   sqld write-admission sweep (write_permits 1/2/4/8)
 #           proxy       DB-proxy cost/benefit matrix (hop vs pooling)
-#           all         all three, in that order
+#           bridge      in-process ephpm_db_* vs MySQL wire, per engine
+#           wp-bridge   WordPress: db-wordpress drop-in vs mysqli wire
+#           all         all five, in that order
 #
 # Unlike the k6/Kubernetes suites in k8s/, these run on ONE host under
 # podman. That is deliberate: the effects being measured (a wire-protocol
@@ -60,12 +62,16 @@ case "$SUITE" in
   engines)   run_suite engines   bench-engines.sh   results-engines ;;
   admission) run_suite admission bench-admission.sh results-admission ;;
   proxy)     run_suite proxy     bench-proxy.sh     results-proxy ;;
+  bridge)    run_suite bridge    bench-bridge.sh    results-bridge ;;
+  wp-bridge) run_suite wp-bridge bench-wordpress-bridge.sh results-wp-bridge ;;
   all)
     run_suite engines   bench-engines.sh   results-engines
     run_suite admission bench-admission.sh results-admission
     run_suite proxy     bench-proxy.sh     results-proxy
+    run_suite bridge    bench-bridge.sh    results-bridge
+    run_suite wp-bridge bench-wordpress-bridge.sh results-wp-bridge
     ;;
-  *) echo "unknown suite: $SUITE (engines|admission|proxy|all)" >&2; exit 2 ;;
+  *) echo "unknown suite: $SUITE (engines|admission|proxy|bridge|wp-bridge|all)" >&2; exit 2 ;;
 esac
 
 echo ""
