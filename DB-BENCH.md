@@ -238,20 +238,19 @@ will be recorded on `ephpm/ephpm:v0.6.3-php8.5` and added here.
   before being discarded. Pool-off write numbers are therefore slightly
   pessimistic against a hypothetical true no-pool build.
 
-- **The `engines` and `admission` numbers were recorded on the v0.6.0 line and
-  the manifests in `k8s/` have only just moved to it.** As with the v0.5.0
-  autotuning note in `RUNTIMES-BENCH.md`, a version bump changes the effective
-  configuration, so numbers recorded across a bump are not directly comparable.
-  Re-record rather than assume.
-- **The `admission` suite needs a v0.6.1 build.** The `write_permits` knob it
-  sweeps merged in
+- **The `engines` and `admission` numbers were recorded on the v0.6.0/v0.6.1
+  lines and the harness defaults have since moved to v0.6.3.** As with the
+  v0.5.0 autotuning note in `RUNTIMES-BENCH.md`, a version bump changes the
+  effective configuration, so numbers recorded across a bump are not directly
+  comparable. Re-record rather than assume.
+- **The `admission` suite needs v0.6.1 or later** — satisfied by the default
+  image since the v0.6.3 pin bump. The `write_permits` knob it sweeps merged in
   [ephpm#222](https://github.com/ephpm/ephpm/pull/222) and is not in v0.6.0 or
-  earlier, so on the published image the `baseline` row is all you get — which
-  on its own demonstrates the collapse that motivated the knob. The suite gates
-  on the startup log before measuring, because `ephpm-config` does not reject
-  unknown fields: an image without the knob would silently ignore it and
-  produce a baseline lane wearing a patched lane's label.
-  motivated the knob.
+  earlier; on an older image the `baseline` row is all you get — which on its
+  own demonstrates the collapse that motivated the knob. The suite gates on the
+  startup log before measuring, because `ephpm-config` does not reject unknown
+  fields: an image without the knob would silently ignore it and produce a
+  baseline lane wearing a patched lane's label.
 
 ## Layout
 

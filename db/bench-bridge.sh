@@ -128,8 +128,13 @@ run_lane() {  # lane cfg
   cleanup
 }
 
-run_lane A-sqlite single-sqlite.toml
-run_lane B-turso  single-turso.toml
+FAILED=0
+run_lane A-sqlite single-sqlite.toml || FAILED=1
+run_lane B-turso  single-turso.toml  || FAILED=1
 
 echo ""
+if [ "$FAILED" = 1 ]; then
+  echo "=== one or more lanes FAILED their gates; raw output in $OUT ==="
+  exit 1
+fi
 echo "=== all lanes done; raw output in $OUT ==="
