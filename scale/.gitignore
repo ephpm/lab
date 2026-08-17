@@ -1,0 +1,16 @@
+# Built load generator / report binaries (rebuilt by run_sweep.sh / go run)
+/loadgen/loadgen
+/reports/report
+loadgen-bin
+report-bin
+
+# Raw per-point result JSON from local re-runs. The recorded results live in
+# the historical repo (ephpm/multitenant-scalebench); the reports/ *.md files
+# here are the record.
+/results/
+
+# Any stray per-site databases or run state accidentally created in-tree
+*.db
+*.db-wal
+*.db-shm
+/run/

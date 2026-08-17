@@ -129,6 +129,8 @@ The manifests are plain Kubernetes YAML and the load generator is k6. Start with
 
 The database suites are the exception: they run on a single host under podman, because the effects they measure are tens of microseconds wide and cluster jitter is larger than the signal. See [DB-BENCH.md](DB-BENCH.md) for that tier and `./scripts/run-db-bench.sh` to drive it. Never put a number from that tier in a table with a k6 number from `k8s/`.
 
+There is a third tier: [`scale/`](scale/README.md), the **source tier** — multi-tenant N-sites scaling, memory/fd models, engine comparison, and open-loop overload behavior, measured on a **from-source ePHPm binary on a bare host** (imported from [ephpm/multitenant-scalebench](https://github.com/ephpm/multitenant-scalebench), which remains the historical record of its results). **Never compare its numbers against the image-pinned tiers**: three provenance classes (published image on k8s, published image under podman, from-source on bare host), three separate tables, always.
+
 ## What Comes Next
 
 - Run a worker-count sweep on the dedicated node, then repeat the three-way WordPress comparison at the tuned worker count.
@@ -170,6 +172,7 @@ This is a reproducible lab, not a universal benchmark. Earlier phases used three
 | `docs/` | Results, methodology, history, and reproduction instructions. |
 | `docs/assets/` | Rendered comparison charts used by this README. |
 | `k8s/` | Kubernetes manifests and k6 jobs for each benchmark phase. |
+| `scale/` | The source tier: multi-tenant scaling / overload harness and its recorded reports, imported from ephpm/multitenant-scalebench. Never table its numbers with the image-pinned tiers. |
 | `wordpress-v5/` | Account-free WordPress/WooCommerce fixture, seed scripts, and k6 probes. |
 | `patches/` | Local patch retained from an older source-built worker-mode experiment. |
 | `scripts/` | Helper scripts retained from earlier source-build experiments and v4 worker runs. |
