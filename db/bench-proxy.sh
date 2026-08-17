@@ -190,7 +190,7 @@ run_lane() {  # lane cfg fixturedir upstream_verifier leakprobe logpats... -- en
   if [ -n "$verifier" ]; then $verifier || { echo "   !! LANE INVALID (upstream did not receive the rows)"; return 1; }; fi
   # The session-leak probe runs AFTER measuring, never before. Running it
   # first poisons the connection pool (see the pool-poisoning finding in
-  # docs/ephpm-0.6.0-db-matrix.md) and every measured cell in the lane
+  # docs/ephpm-0.6.1-db-matrix.md) and every measured cell in the lane
   # then returns HTTP 500 -- at 876 requests per second, which reads as an
   # excellent result right up until you count response statuses.
   measure "$lane" db.php
@@ -205,7 +205,8 @@ LW='SQLite MySQL wire protocol enabled'
 
 # The litewire sidecar used by A2/B2/C2 (and its turso twin for J2). It is
 # up and listening BEFORE the proxy node starts, which is the only way the
-# proxy can ever reach litewire -- see FINDING-startup-order.md.
+# proxy can ever reach litewire -- see results-proxy/FINDING-startup-order.log,
+# written by STEP 0 below on every run.
 start_lw_node() {  # cfg
   podman rm -f dbbench-lw >/dev/null 2>&1 || true
   podman volume rm -f dbv-lw >/dev/null 2>&1 || true

@@ -11,17 +11,19 @@ from the ePHPm-lab report's next-tests list.
 
 | Runtime | Image | PHP |
 |---------|-------|-----|
-| ePHPm v0.5.0 | `ephpm/ephpm:v0.5.0-php8.4` | 8.4 ZTS, glibc |
+| ePHPm v0.6.3 | `ephpm/ephpm:v0.6.3-php8.4` | 8.4 ZTS, glibc |
 | nginx + php-fpm | `nginx:1.27-alpine` + `php:8.4-fpm` (Debian) | 8.4 NTS, glibc |
 | FrankenPHP | `dunglas/frankenphp:latest` | 8.5 ZTS, glibc (image default; see caveat) |
 | Swoole | `phpswoole/swoole:php8.4` | 8.4 NTS, glibc |
 | RoadRunner | `php:8.4-cli-alpine` + `ghcr.io/roadrunner-server/roadrunner:2024` | 8.4 NTS, musl (see caveat) |
-| ePHPm v0.5.0 worker mode | `ephpm/ephpm:v0.5.0-php8.4` (`[php] mode = "worker"`) | 8.4 ZTS, glibc |
+| ePHPm v0.6.3 worker mode | `ephpm/ephpm:v0.6.3-php8.4` (`[php] mode = "worker"`) | 8.4 ZTS, glibc |
 
-The manifests pin **v0.5.0**, which carries the whole v0.4.x line
+The manifests pin **v0.6.3**, which carries the whole v0.4.x line
 (v0.4.1: 101x db.php latency fix + SHA-NI; v0.4.2: HTTP `TCP_NODELAY`
--13% p99, worker dispatch fastpath, mimalloc/LTO) and adds v0.5.0's
-**resource-aware autotuning**. For the v0.4.0-vs-v0.4.1 before/after,
+-13% p99, worker dispatch fastpath, mimalloc/LTO), v0.5.0's
+**resource-aware autotuning**, and the v0.6.x database-path work
+(pool fixes, the `ephpm_db_*` bridge — see `DB-BENCH.md`).
+For the v0.4.0-vs-v0.4.1 before/after,
 see [docs/ephpm-0.4.1-retest.md](docs/ephpm-0.4.1-retest.md). The
 `db.php` lane (10 PDO queries on ePHPm's in-process SQLite) remains
 the reproduction path for the database-latency number.
@@ -40,19 +42,24 @@ the reproduction path for the database-latency number.
 > expected to benefit most; tiny-script lanes (`hello`) should be
 > unchanged. Operator config still overrides any derived value.
 
-## Experimental: Turso engine db lane (disabled)
+## Experimental: Turso engine db lane (deployed, undriven)
 
-`k8s/runtimes-bench.yaml` now carries a `bench-ephpm-turso` lane —
-identical to the ePHPm db.php lane but with the **experimental**
-`[db.sqlite] engine = "turso"` knob (the Rust SQLite rewrite). It ships
-`replicas: 0` because the knob merged *after* the v0.5.0 tag; enable it
-only once the image pin moves past v0.5.0 (`kubectl scale
-deploy/bench-ephpm-turso --replicas=1`), confirm the pod log shows the
-experimental-engine startup warning, then run the db.php profile against
-it. Context: Phase 1 microbenchmarks at the litewire seam measured 28x
-point-SELECT and 4x concurrent-writer throughput vs the C engine; this
-lane measures what survives of that through the full
-mysqlnd → MySQL-wire → engine path on a resource-limited pod.
+`k8s/runtimes-bench.yaml` carries a `bench-ephpm-turso` Deployment +
+Service — identical to the ePHPm db.php lane but with the
+**experimental** `[db.sqlite] engine = "turso"` knob (the Rust SQLite
+rewrite). On the v0.6.3 pin the knob exists, so the lane ships
+`replicas: 1` — but **no k6 Job drives it**: applying the manifest
+deploys the pod and then nothing measures it. To measure it, confirm
+the pod log shows the experimental-engine startup warning, then run the
+db.php profile by hand against `http://bench-ephpm-turso:8080/db.php`
+and compare with the `bench-ephpm` lane's db.php result. Context:
+Phase 1 microbenchmarks at the litewire seam measured 28x point-SELECT
+and 4x concurrent-writer throughput vs the C engine; this lane measures
+what survives of that through the full mysqlnd → MySQL-wire → engine
+path on a resource-limited pod. Note this lane collapses on any future
+v0.7.0+ pin bump: Turso becomes the only engine there, so the knob (and
+the lane's reason to exist) disappears — see the "Relationship to ePHPm
+v0.7.0" section in the README.
 
 ## Class A vs Class B
 
@@ -178,9 +185,11 @@ results; they are not claims about production throughput.
 kubectl apply -f k8s/runtimes-bench.yaml
 # Delete the auto-fired k6 Jobs (the manifest creates them on apply):
 kubectl delete job k6-bench-ephpm k6-bench-nginx-fpm k6-bench-frankenphp \
-  k6-bench-swoole k6-bench-rr -n runtimes-bench --ignore-not-found
-# Wait for all deployments:
-for d in bench-ephpm bench-nginx-fpm bench-frankenphp bench-swoole bench-rr; do
+  k6-bench-swoole k6-bench-rr k6-bench-ephpm-worker \
+  -n runtimes-bench --ignore-not-found
+# Wait for all deployments (bench-ephpm-turso comes up too, but no job drives it):
+for d in bench-ephpm bench-ephpm-turso bench-nginx-fpm bench-frankenphp \
+         bench-swoole bench-rr bench-ephpm-worker; do
   kubectl rollout status deployment/$d -n runtimes-bench --timeout=300s
 done
 # Then reapply to recreate jobs, or use the driver script.
@@ -214,7 +223,10 @@ image without contacting a registry.
 k8s/runtimes-bench.yaml    Single self-contained manifest:
                              - Namespace
                              - ConfigMaps (fixtures, configs, k6 script)
-                             - 5 Deployments + 5 Services
-                             - 5 k6 Jobs
+                             - 7 Deployments + 7 Services (five Class A/B
+                               runtimes, the ePHPm worker-mode lane, and
+                               the undriven bench-ephpm-turso lane)
+                             - 6 k6 Jobs (one per runtime lane plus the
+                               worker lane; bench-ephpm-turso has none)
 scripts/run-runtimes-bench.sh  Driver: apply, wait, run jobs, print summaries
 ```

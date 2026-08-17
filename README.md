@@ -6,6 +6,21 @@ A reproducible Kubernetes lab for people deciding whether ePHPm belongs in their
 
 > This is not "ePHPm beats PHP-FPM." It is "ePHPm can beat PHP-FPM when the app and deployment model are adapted to ePHPm's worker/native-service architecture."
 
+## Relationship to ePHPm v0.7.0
+
+> **Historical (pre-v0.7.0).** The database suites pin `ephpm/ephpm:v0.6.3` and
+> parts of them exercise machinery that **no longer exists upstream**. ePHPm
+> v0.7.0 removed the rusqlite engine (`[db.sqlite] engine = "sqlite"` is now a
+> **hard startup error**), the sqld sidecar, the `[db.sqlite.sqld]
+> write_permits` admission knob, and the `cdc_experimental` knob; Turso is the
+> only embedded engine and clustered replication runs over the in-process Turso
+> CDC path. The `engines`, `admission`, and sqld-cluster lanes in
+> [DB-BENCH.md](DB-BENCH.md) therefore run only against the pinned v0.6.3
+> image and **will not run against v0.7.0+ images**. Their recorded numbers are
+> retained as the parity evidence behind the engine switch — the same way
+> ePHPm's own [benchmarking results page](https://ephpm.dev/benchmarking/results/)
+> marks those sections historical.
+
 ## The Numbers
 
 ### Laravel Cache Workload
@@ -72,6 +87,30 @@ The full four-upstream matrix, the two pool defects, and the PostgreSQL
 pool-exhaustion cliff that v0.6.1 removed are in
 [the v0.6.1 database matrix](docs/ephpm-0.6.1-db-matrix.md).
 
+### v0.7.0 Verification Runs (source tier)
+
+Three recorded suites on a from-source ephpm main binary (`180d0ac`,
+sha256-pinned in each doc) — source-tier provenance, never comparable with the
+image-pinned numbers above:
+
+- **[shed-verify](docs/shed-verify-v070.md)** — the open-loop overload matrix
+  from the imported SHEDDING report, re-run on the post-fix binary: zero
+  SIGABRTs in 10 floods (was 3/10), `overload_policy = "shed"` converts 100%
+  of excess arrivals into 503s answered in p50 1.7 ms with **zero client
+  timeouts and full capacity retained as goodput**; the default-config black
+  hole and the deep-flood spawn_blocking wedge still reproduce (the remedy is
+  opt-in config / the preview preset).
+- **[kv-micro](docs/kv-micro-v070.md)** — first measurement behind the KV
+  guide's published numbers: `ephpm_kv_get` ≈ 116 ns at 64 B (the "~100 ns"
+  claim holds for small gets; sets ≈ 160 ns; 64 KB is copy-bound at 1–2 µs);
+  RESP round-trips 79–111 µs (inside the guide's "10–100 µs" band, but pinned
+  to its top end on this host).
+- **[containment-tax](docs/containment-tax-v070.md)** — `crash_containment`
+  A/B: happy-path deltas −0.4%…+0.8% (inside noise — "performance-free"
+  verified); a 500-crash storm: 500/500 contained, exact counter/log
+  accounting, concurrent traffic p99 0.86 ms with 0 errors, and the bounded
+  leak quantified at **~857 KB RSS per contained crash**.
+
 ### Clustered OPcache Invalidation
 
 One `ephpm deploy` invalidated OPcache across two ePHPm pods without rolling PHP processes. The PHP-FPM comparison used a rolling restart, which remained available but took longer at every recorded latency percentile.
@@ -106,13 +145,15 @@ One `ephpm deploy` invalidated OPcache across two ePHPm pods without rolling PHP
 | db engines | 10 sequential PDO queries / 1 INSERT | ePHPm SQLite vs Turso, single-node vs clustered sqld | Single-node is sound; clustered sqld completed zero requests at 16 concurrent writes until `write_permits = 1` (v0.6.1). |
 | db proxy | Same fixtures, four upstreams | ePHPm DB proxy pooled vs unpooled vs no proxy | Hop costs 1.3–2.2 ms; pooling wins at c=16, loses at c=1 on the MySQL wire. Two v0.6.0 pool defects fixed in v0.6.1. |
 
-Raw data, workload details, and the original test narrative live in [the WordPress v5 report](docs/wordpress-v5.md), [the 0.4.0 retest report](docs/ephpm-0.4.0-retest.md), [the OPcache follow-up](docs/follow-up-opcache.md), [the v0.6.0 database matrix](docs/ephpm-0.6.1-db-matrix.md), and [the chronological lab report](docs/ephpm-vs-php-fpm-lab-report.md).
+Raw data, workload details, and the original test narrative live in [the WordPress v5 report](docs/wordpress-v5.md), [the 0.4.0 retest report](docs/ephpm-0.4.0-retest.md), [the OPcache follow-up](docs/follow-up-opcache.md), [the v0.6.1 database matrix](docs/ephpm-0.6.1-db-matrix.md), and [the chronological lab report](docs/ephpm-vs-php-fpm-lab-report.md).
 
 ## Reproduce It
 
 The manifests are plain Kubernetes YAML and the load generator is k6. Start with the [reproduction guide](docs/reproduction.md) for the exact sequence, then inspect the [manifest map](k8s/README.md) for the workload files.
 
 The database suites are the exception: they run on a single host under podman, because the effects they measure are tens of microseconds wide and cluster jitter is larger than the signal. See [DB-BENCH.md](DB-BENCH.md) for that tier and `./scripts/run-db-bench.sh` to drive it. Never put a number from that tier in a table with a k6 number from `k8s/`.
+
+There is a third tier: [`scale/`](scale/README.md), the **source tier** — multi-tenant N-sites scaling, memory/fd models, engine comparison, and open-loop overload behavior, measured on a **from-source ePHPm binary on a bare host** (imported from [ephpm/multitenant-scalebench](https://github.com/ephpm/multitenant-scalebench), which remains the historical record of its results). **Never compare its numbers against the image-pinned tiers**: three provenance classes (published image on k8s, published image under podman, from-source on bare host), three separate tables, always.
 
 ## What Comes Next
 
@@ -123,6 +164,26 @@ The database suites are the exception: they run on a single host under podman, b
 - Larger nodes and Metrics API data so latency can be connected to CPU and memory behavior.
 - Ten to thirty minute runs, multiple worker counts, and restart/failure testing for persistent workers.
 - A direct Octane, Swoole, RoadRunner, and ePHPm comparison.
+
+## Traps That Taint A Run
+
+Documented mistakes that produced confidently wrong numbers before they were
+caught. Check them before trusting any measurement from this repo:
+
+- **The server's working directory must be on a native filesystem.** A
+  from-source ePHPm launched with its cwd (or state dir) on a WSL DrvFs mount
+  (`/mnt/c/...`) pays a 9p syscall penalty on the hot request path that
+  silently cost **~3.8×** throughput on light workloads — same binary, same
+  config, 4,164 vs 15,900 RPS — and mislabelled a mutex-contention story
+  before the erratum landed (see the BEFORE-AFTER erratum in
+  [ephpm/multitenant-scalebench](https://github.com/ephpm/multitenant-scalebench)).
+  Assert the cwd/state filesystem is native (ext4 in WSL2, not `/mnt/*`)
+  before measuring.
+- **Check the status-code distribution before trusting a throughput number.**
+  The image's default config ships a per-IP rate limit that clamps a
+  single-IP load generator (see `RUNTIMES-BENCH.md`), and `oha` counts an
+  HTTP 500 as a transport success — three proxy lanes once recorded 876 RPS
+  of pure 500s (see `DB-BENCH.md`, gate 5).
 
 ## Caveats
 
@@ -135,6 +196,9 @@ This is a reproducible lab, not a universal benchmark. Earlier phases used three
 | `docs/` | Results, methodology, history, and reproduction instructions. |
 | `docs/assets/` | Rendered comparison charts used by this README. |
 | `k8s/` | Kubernetes manifests and k6 jobs for each benchmark phase. |
+| `scale/` | The source tier: multi-tenant scaling / overload harness and its recorded reports, imported from ephpm/multitenant-scalebench. Never table its numbers with the image-pinned tiers. |
+| `kv/` | kv-micro suite: `ephpm_kv_*` SAPI ns/op and RESP µs/op (source tier). |
+| `containment/` | containment-tax suite: `crash_containment` happy-path A/B and crash-storm lanes (source tier). |
 | `wordpress-v5/` | Account-free WordPress/WooCommerce fixture, seed scripts, and k6 probes. |
 | `patches/` | Local patch retained from an older source-built worker-mode experiment. |
 | `scripts/` | Helper scripts retained from earlier source-build experiments and v4 worker runs. |

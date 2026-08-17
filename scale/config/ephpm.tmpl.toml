@@ -1,0 +1,43 @@
+# ePHPm multi-tenant scalebench server config (template).
+# run_sweep.sh substitutes @PORT@, @SITES_DIR@, @DB_DIR@, @MAX_OPEN_DBS@.
+#
+# Multi-tenant mode is keyed by [server] sites_dir: each request's Host becomes
+# a canonical site key that selects BOTH sites_dir/<key> (docroot) and
+# db.sqlite dir/<key>.db (the per-site Turso database). Worker mode is
+# unsupported with sites_dir, so php.mode is fpm (per-request) — the realistic
+# multi-tenant shape.
+
+[server]
+listen = "127.0.0.1:@PORT@"
+sites_dir = "@SITES_DIR@"
+
+[server.timeouts]
+header_read = 30
+idle = 60
+request = 60
+
+[php]
+mode = "fpm"
+memory_limit = "256M"
+max_execution_time = 60
+
+[db.sqlite]
+# Per-site database directory. Each vhost gets its own <site-key>.db, opened
+# lazily and cached under the LRU below. This is the tenant isolation unit.
+dir = "@DB_DIR@"
+# LRU cap on simultaneously-open per-site databases. Default 256. The sweep
+# runs this at 256 (default) and a raised value to expose the memory-vs-churn
+# tradeoff at N > cap.
+max_open_dbs = @MAX_OPEN_DBS@
+engine = "turso"
+
+[db.sqlite.proxy]
+# The multi-tenant MySQL wire listener starts even when only the ephpm_db_*
+# bridge is used. Give it a non-default port so concurrent ePHPm instances
+# (sibling agents / other sweeps) don't collide on 3306.
+mysql_listen = "127.0.0.1:@WIREPORT@"
+
+[db.analysis]
+# Query stats add per-request overhead we don't want to measure here; the
+# per-site path still flows through TrackedBackend, just with recording off.
+query_stats = false

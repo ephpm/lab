@@ -16,8 +16,13 @@
 # Lane C only: does write admission control flatten the clustered-sqld
 # write collapse?
 #
-#   baseline  ephpm:v060-rc2        (no knob at all)
-#   p2/p4/p8  ephpm:sqld-admission  ([db.sqlite.sqld] write_permits = N)
+#   baseline  default image, cluster configs WITHOUT the knob
+#   p1..p8    default image, [db.sqlite.sqld] write_permits = N configs
+#
+# Both lane groups default to the same v0.6.3 image (write_permits shipped
+# in v0.6.1 via ephpm#222, so the default image carries it); the baseline
+# lane differs only by config. EPHPM_ADMISSION_IMAGE still overrides the
+# permit lanes' image if you want to sweep a custom build.
 #
 # Each setting gets a FRESH 2-node cluster (config change => restart), a
 # replication-verified gate before any measurement, and a read pass before
@@ -31,7 +36,7 @@
 set -uo pipefail
 
 BASE_IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
-ADM_IMG="${EPHPM_ADMISSION_IMAGE:-localhost/ephpm:sqld-admission}"
+ADM_IMG="${EPHPM_ADMISSION_IMAGE:-$BASE_IMG}"
 OHA=ghcr.io/hatoo/oha:latest
 CURL=docker.io/curlimages/curl:latest
 NET=dbbench-net

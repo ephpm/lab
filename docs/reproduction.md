@@ -123,7 +123,7 @@ kubectl logs job/k6-v3b-ephpm-worker -n krayin-bench
 
 ## WordPress v5 WooCommerce Test
 
-The v5 fixture is deliberately application-shaped: a WordPress 7.0 store with WooCommerce, Elementor, OceanWP, Ocean Extra, Yoast, ACF, Contact Form 7, and Redis Object Cache. It seeds 1,200 products, 800 variations, 2,000 reviews, 300 posts, and 200 completed orders. The PHP-FPM lane uses nginx, `phpredis`, and Redis; the ePHPm lanes use its native WordPress cache drop-in and native KV.
+The v5 fixture is deliberately application-shaped: a WordPress 7.0 store (pinned by `wp core download --version=7.0` in `wordpress-v5/scripts/prepare-wordpress.sh`) with WooCommerce, Elementor, OceanWP, Ocean Extra, Yoast, ACF, Contact Form 7, and Redis Object Cache. It seeds 1,200 products, 800 variations, 2,000 reviews, 300 posts, and 200 completed orders. The PHP-FPM lane uses nginx, `phpredis`, and Redis; the ePHPm lanes use its native WordPress cache drop-in and native KV.
 
 Render the script and k6 ConfigMaps, then deploy the backing services:
 
