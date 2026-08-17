@@ -455,8 +455,9 @@ spec:
 
 # ---------------------------------------------------------------------------
 # 1b. ePHPm + EXPERIMENTAL Turso engine — db lane only. The `[db.sqlite]
-#     engine` knob shipped in v0.6.0, which this manifest now pins, so the
-#     lane is enabled (replicas: 1).
+#     engine` knob shipped in v0.6.0 and this manifest pins v0.6.3, so the
+#     lane is enabled (replicas: 1). NOTE: no k6 Job drives this lane —
+#     it is deployed but undriven; measure it by hand as described below.
 #     Verify the engine actually engaged before trusting any number: the
 #     pod log must show the experimental-engine startup warning. Then run
 #     the db.php k6 profile against http://bench-ephpm-turso:8080/db.php

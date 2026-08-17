@@ -6,6 +6,21 @@ A reproducible Kubernetes lab for people deciding whether ePHPm belongs in their
 
 > This is not "ePHPm beats PHP-FPM." It is "ePHPm can beat PHP-FPM when the app and deployment model are adapted to ePHPm's worker/native-service architecture."
 
+## Relationship to ePHPm v0.7.0
+
+> **Historical (pre-v0.7.0).** The database suites pin `ephpm/ephpm:v0.6.3` and
+> parts of them exercise machinery that **no longer exists upstream**. ePHPm
+> v0.7.0 removed the rusqlite engine (`[db.sqlite] engine = "sqlite"` is now a
+> **hard startup error**), the sqld sidecar, the `[db.sqlite.sqld]
+> write_permits` admission knob, and the `cdc_experimental` knob; Turso is the
+> only embedded engine and clustered replication runs over the in-process Turso
+> CDC path. The `engines`, `admission`, and sqld-cluster lanes in
+> [DB-BENCH.md](DB-BENCH.md) therefore run only against the pinned v0.6.3
+> image and **will not run against v0.7.0+ images**. Their recorded numbers are
+> retained as the parity evidence behind the engine switch — the same way
+> ePHPm's own [benchmarking results page](https://ephpm.dev/benchmarking/results/)
+> marks those sections historical.
+
 ## The Numbers
 
 ### Laravel Cache Workload
@@ -106,7 +121,7 @@ One `ephpm deploy` invalidated OPcache across two ePHPm pods without rolling PHP
 | db engines | 10 sequential PDO queries / 1 INSERT | ePHPm SQLite vs Turso, single-node vs clustered sqld | Single-node is sound; clustered sqld completed zero requests at 16 concurrent writes until `write_permits = 1` (v0.6.1). |
 | db proxy | Same fixtures, four upstreams | ePHPm DB proxy pooled vs unpooled vs no proxy | Hop costs 1.3–2.2 ms; pooling wins at c=16, loses at c=1 on the MySQL wire. Two v0.6.0 pool defects fixed in v0.6.1. |
 
-Raw data, workload details, and the original test narrative live in [the WordPress v5 report](docs/wordpress-v5.md), [the 0.4.0 retest report](docs/ephpm-0.4.0-retest.md), [the OPcache follow-up](docs/follow-up-opcache.md), [the v0.6.0 database matrix](docs/ephpm-0.6.1-db-matrix.md), and [the chronological lab report](docs/ephpm-vs-php-fpm-lab-report.md).
+Raw data, workload details, and the original test narrative live in [the WordPress v5 report](docs/wordpress-v5.md), [the 0.4.0 retest report](docs/ephpm-0.4.0-retest.md), [the OPcache follow-up](docs/follow-up-opcache.md), [the v0.6.1 database matrix](docs/ephpm-0.6.1-db-matrix.md), and [the chronological lab report](docs/ephpm-vs-php-fpm-lab-report.md).
 
 ## Reproduce It
 
@@ -123,6 +138,26 @@ The database suites are the exception: they run on a single host under podman, b
 - Larger nodes and Metrics API data so latency can be connected to CPU and memory behavior.
 - Ten to thirty minute runs, multiple worker counts, and restart/failure testing for persistent workers.
 - A direct Octane, Swoole, RoadRunner, and ePHPm comparison.
+
+## Traps That Taint A Run
+
+Documented mistakes that produced confidently wrong numbers before they were
+caught. Check them before trusting any measurement from this repo:
+
+- **The server's working directory must be on a native filesystem.** A
+  from-source ePHPm launched with its cwd (or state dir) on a WSL DrvFs mount
+  (`/mnt/c/...`) pays a 9p syscall penalty on the hot request path that
+  silently cost **~3.8×** throughput on light workloads — same binary, same
+  config, 4,164 vs 15,900 RPS — and mislabelled a mutex-contention story
+  before the erratum landed (see the BEFORE-AFTER erratum in
+  [ephpm/multitenant-scalebench](https://github.com/ephpm/multitenant-scalebench)).
+  Assert the cwd/state filesystem is native (ext4 in WSL2, not `/mnt/*`)
+  before measuring.
+- **Check the status-code distribution before trusting a throughput number.**
+  The image's default config ships a per-IP rate limit that clamps a
+  single-IP load generator (see `RUNTIMES-BENCH.md`), and `oha` counts an
+  HTTP 500 as a transport success — three proxy lanes once recorded 876 RPS
+  of pure 500s (see `DB-BENCH.md`, gate 5).
 
 ## Caveats
 

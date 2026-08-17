@@ -10,6 +10,30 @@ different upstreams.
 > a connect cost that dominates short requests, and its proxy exists to amortise
 > that cost — which it does, when the pool is actually reused."
 
+## Relationship to ePHPm v0.7.0
+
+> **Historical (pre-v0.7.0).** This file's suites pin `v0.6.3`, and three of
+> them exercise machinery that was **removed upstream in v0.7.0**: the rusqlite
+> engine (`[db.sqlite] engine = "sqlite"` is now a hard startup error with a
+> migration message), the sqld sidecar, the `[db.sqlite.sqld] write_permits`
+> knob, and `cdc_experimental`. Concretely, on a v0.7.0+ image:
+>
+> - the `engines` suite's rusqlite and sqld-cluster lanes fail at startup
+>   (`single-sqlite.toml`, `cluster-sqlite-*.toml`), and the rusqlite half of
+>   `bridge` fails the same way;
+> - the entire `admission` suite sweeps a knob that no longer exists — the
+>   startup-log gate will correctly refuse every permit lane;
+> - the Turso-vs-rusqlite comparison itself is no longer reproducible on any
+>   shippable image, because there is only one engine.
+>
+> These suites are retained **as the historical record against the pinned
+> v0.6.3 image** — the parity evidence behind the v0.7.0 engine switch — the
+> same way ePHPm's own
+> [results page](https://ephpm.dev/benchmarking/results/) marks its pre-v0.7.0
+> engine and admission sections historical. A future v0.7.0 pin bump replaces
+> them with a Turso-single vs Turso-CDC-clustered matrix rather than editing
+> these lanes.
+
 ## Why This Runs On Podman, Not Kubernetes
 
 Every other suite in this lab runs k6 jobs against a real cluster, because the
@@ -165,6 +189,24 @@ relayed to the pooled backend, and a permit-accounting deadlock it was masking
 that nearly became a headline, is in
 [docs/ephpm-0.6.1-db-matrix.md](docs/ephpm-0.6.1-db-matrix.md).
 
+## The Deliberately-Broken Config (proxy STEP 0)
+
+`db/configs/proxy-litewire-inprocess-BROKEN.toml` is broken **on purpose**, and
+`db/bench-proxy.sh` runs it first ("STEP 0") on every invocation. It chains
+`[db.mysql]` (the proxy) in front of the *same process's* in-process
+`[db.sqlite]` litewire — a topology ePHPm cannot start: `start_db_proxies()`
+awaits the proxy's backend connect inline and the litewire branch runs after
+it, so the proxy spends its entire ~40 s ten-attempt backoff dialling a
+listener that cannot exist yet, then gives up **non-fatally and nearly
+silently** — the server goes on serving HTTP with nothing bound to the proxy
+port and every database page returning `[2002] Connection refused`, while
+liveness and readiness both look healthy (see the "Still true in v0.6.1" notes
+on ePHPm's [results page](https://ephpm.dev/benchmarking/results/), which this
+step reproduces). STEP 0 archives the evidence as
+`db/results-proxy/FINDING-startup-order.log` each run. It is a gate in its own
+right: it *proves* the proxy-vs-litewire lanes (B2/C2/J2) had to use a separate
+litewire sidecar container, instead of leaving that as an assertion in prose.
+
 ## The Bridge Suites (`bridge`, `wp-bridge`)
 
 v0.6.3 ships the in-process DB bridge
@@ -258,7 +300,7 @@ will be recorded on `ephpm/ephpm:v0.6.3-php8.5` and added here.
 DB-BENCH.md                  This file: recipe, gates, reference numbers
 scripts/run-db-bench.sh      Driver: picks a suite, sets image/duration, parses
 db/bench-engines.sh          4-lane engine + clustering matrix
-db/bench-admission.sh        sqld write-admission sweep (prototype image)
+db/bench-admission.sh        sqld write-admission sweep (default image)
 db/bench-proxy.sh            Proxy cost/benefit matrix
 db/bench-bridge.sh           In-process ephpm_db_* vs MySQL wire, per engine
 db/bench-wordpress-bridge.sh WordPress: db-wordpress drop-in vs mysqli wire
