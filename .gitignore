@@ -12,6 +12,8 @@ tmp/
 # measurement, but far too large and too host-specific to commit. The
 # tables in DB-BENCH.md and docs/ephpm-0.6.1-db-matrix.md are the record.
 db/results-*/
+kv/results-*/
+containment/results-*/
 
 # Local Kubernetes access and credentials.
 kubeconfig*

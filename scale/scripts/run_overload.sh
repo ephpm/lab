@@ -32,6 +32,22 @@ PAD="${PAD:-4}"
 ENGINES="${ENGINES:-spawn_blocking pool}"
 LIMITS="${LIMITS:-0 256}"     # [server.limits] max_connections; 0 = section omitted (default)
 RATES="${RATES:-400 800}"     # open-loop arrival rates (req/s)
+
+# Overload-policy lanes (ephpm #298/#301: [php] overload_policy / the
+# [server] preview preset). Values:
+#   wait     — no shed config at all (the pre-#301 behavior; baseline)
+#   shed     — EPHPM_PHP__OVERLOAD_POLICY=shed (+ SHED_AFTER_MS grace).
+#              On engine=spawn_blocking the ONLY shed point is the [php]
+#              workers semaphore, so that combination also sets
+#              EPHPM_PHP__WORKERS=$SB_WORKERS (workers=0 would make shed
+#              silently inert — serve() warns, and this harness gates).
+#   preview  — EPHPM_SERVER__PREVIEW=true only: the preset resolves
+#              overload_policy to shed AND fills in the preview limit
+#              defaults (per-site rate caps etc.); responses carry
+#              X-Ephpm-Preview.
+POLICIES="${POLICIES:-wait}"
+SHED_AFTER_MS="${SHED_AFTER_MS:-0}"
+SB_WORKERS="${SB_WORKERS:-$(nproc)}"
 ARRIVAL="${ARRIVAL:-const}"
 WARMUP="${WARMUP:-5}"
 DUR="${DUR:-60}"
@@ -143,20 +159,56 @@ seed_copy() {
 rss_kb() { awk '/^VmRSS:/{print $2}' "/proc/$1/status" 2>/dev/null || echo 0; }
 
 one_point() {
-  local engine="$1" maxconn="$2" rate="$3"
-  local tag="lim-$maxconn-rate-$rate"
+  local engine="$1" maxconn="$2" rate="$3" policy="${4:-wait}"
+  local tag="pol-$policy-lim-$maxconn-rate-$rate"
   local outdir="$RESULTS/engine-$engine"
   mkdir -p "$outdir"
-  echo "=== engine=$engine max_connections=$maxconn rate=$rate/s ==="
+  echo "=== engine=$engine policy=$policy max_connections=$maxconn rate=$rate/s ==="
   bash "$HERE/scripts/provision.sh" "$SITES" "$DOCROOT" "$N" "$PAD"
   seed_copy "$N"
   render_config "$CAP" "$maxconn"
+
+  # Policy lanes are injected by env override (same mechanism as the engine),
+  # never by editing the template — and verified in the startup log below.
+  unset EPHPM_PHP__OVERLOAD_POLICY EPHPM_SERVER__PREVIEW \
+        EPHPM_PHP__SHED_AFTER_MS EPHPM_PHP__WORKERS
+  case "$policy" in
+    wait) ;;
+    shed)
+      export EPHPM_PHP__OVERLOAD_POLICY=shed EPHPM_PHP__SHED_AFTER_MS="$SHED_AFTER_MS"
+      [ "$engine" = "spawn_blocking" ] && export EPHPM_PHP__WORKERS="$SB_WORKERS"
+      ;;
+    preview)
+      export EPHPM_SERVER__PREVIEW=true
+      ;;
+    *) echo "unknown policy: $policy" >&2; exit 2 ;;
+  esac
+
   start_server
 
   # Startup capture + HARD verification the engine env took effect.
   local startup="$outdir/$tag.startup.txt"
-  grep -aiE "fpm execution pool started|HTTP listening|per-site database mode|limits|autotune" "$LOG" \
+  grep -aiE "fpm execution pool started|HTTP listening|per-site database mode|limits|autotune|overload|shed|preview" "$LOG" \
     | sed -r 's/\x1b\[[0-9;]*m//g' > "$startup" 2>/dev/null || true
+
+  # HARD verification the policy took effect (ephpm-config accepts env
+  # overrides silently; a typo'd var name would benchmark a mislabelled lane).
+  case "$policy" in
+    shed|preview)
+      if ! grep -qi "load shedding ON" "$startup"; then
+        echo "FATAL: policy=$policy but no 'load shedding ON' startup line" >&2
+        cat "$startup" >&2; exit 1
+      fi ;;
+    wait)
+      if grep -qiE "load shedding ON|preview mode ON" "$startup"; then
+        echo "FATAL: policy=wait but the startup log shows shed/preview active" >&2
+        cat "$startup" >&2; exit 1
+      fi ;;
+  esac
+  if [ "$policy" = "preview" ] && ! grep -qi "preview mode ON" "$startup"; then
+    echo "FATAL: policy=preview but no 'preview mode ON' startup line" >&2
+    cat "$startup" >&2; exit 1
+  fi
   local pool_size=0
   if grep -q "fpm execution pool started" "$startup" 2>/dev/null; then
     pool_size="$(grep -oE 'thread_count=[0-9]+' "$startup" | head -1 | grep -oE '[0-9]+')"
@@ -207,8 +259,8 @@ one_point() {
 
   local out="$outdir/$tag.json"
   {
-    printf '{"meta":{"workload":"wp-real","mode":"open-loop","engine":"%s","pool_size":%s,"max_connections":%s,"rate":%s,"arrival":"%s","timeout_s":%s,"cap":%s,"n":%s,"warmup":%s,"dur":%s,"cooldown":%s,"ulimit_n":%s,"cores":%s,"survived":%s,"rss_after_flood_kb":%s,"rss_after_cooldown_kb":%s,"loadavg1_after_flood":%s},' \
-      "$engine" "$pool_size" "$maxconn" "$rate" "$ARRIVAL" "$TIMEOUT" "$CAP" "$N" "$WARMUP" "$DUR" "$COOLDOWN" "$ULIMIT_N" "$CORES" "$survived" "${rss_flood:-0}" "${rss_cool:-0}" "${load1:-0}"
+    printf '{"meta":{"workload":"wp-real","mode":"open-loop","engine":"%s","policy":"%s","shed_after_ms":%s,"pool_size":%s,"max_connections":%s,"rate":%s,"arrival":"%s","timeout_s":%s,"cap":%s,"n":%s,"warmup":%s,"dur":%s,"cooldown":%s,"ulimit_n":%s,"cores":%s,"survived":%s,"rss_after_flood_kb":%s,"rss_after_cooldown_kb":%s,"loadavg1_after_flood":%s},' \
+      "$engine" "$policy" "$SHED_AFTER_MS" "$pool_size" "$maxconn" "$rate" "$ARRIVAL" "$TIMEOUT" "$CAP" "$N" "$WARMUP" "$DUR" "$COOLDOWN" "$ULIMIT_N" "$CORES" "$survived" "${rss_flood:-0}" "${rss_cool:-0}" "${load1:-0}"
     printf '"flood":'; cat "$lgjson"; printf ','
     printf '"resource":'; cat "$spjson"; printf ','
     printf '"recovery":'; cat "$probejson"; printf '}'
@@ -219,14 +271,18 @@ one_point() {
   sleep 3   # let sockets drain between points
 }
 
-echo "binary=$BIN engines=$ENGINES limits=$LIMITS rates=$RATES N=$N cap=$CAP dur=${DUR}s timeout=${TIMEOUT}s"
+echo "binary=$BIN engines=$ENGINES policies=$POLICIES limits=$LIMITS rates=$RATES N=$N cap=$CAP dur=${DUR}s timeout=${TIMEOUT}s"
 make_template
 for engine in $ENGINES; do
   export EPHPM_PHP__FPM_ENGINE="$engine"
   echo "########## engine=$engine (EPHPM_PHP__FPM_ENGINE=$engine) ##########"
-  for maxconn in $LIMITS; do
-    for rate in $RATES; do
-      one_point "$engine" "$maxconn" "$rate"
+  for policy in $POLICIES; do
+    # preview implies pool-preset behavior but is engine-independent; skip
+    # nothing here — a spawn_blocking+preview lane is legitimate if asked for.
+    for maxconn in $LIMITS; do
+      for rate in $RATES; do
+        one_point "$engine" "$maxconn" "$rate" "$policy"
+      done
     done
   done
 done

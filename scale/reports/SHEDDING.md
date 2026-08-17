@@ -1,5 +1,18 @@
 # What Does an Overloaded ePHPm Actually Return? (Open-Loop Shedding Test)
 
+> **Remediation note (2026-08-17): re-verified on post-fix main — the fixes
+> hold.** This report's findings were recorded on a pre-#298/#300/#301/#305
+> binary and are preserved below as the historical record. The same matrix was
+> re-run on ephpm main @ `180d0ac` with the shipped fixes:
+> [`docs/shed-verify-v070.md`](../../docs/shed-verify-v070.md). Summary of the
+> re-run: the `HeldSession` SIGABRT (finding 4) did not reproduce in 10 floods
+> (was 3/10); `overload_policy = "shed"` / the preview preset convert 100% of
+> excess arrivals into fast 503s/429s (503 p50 1.7 ms) with full capacity
+> retained as goodput; the default-config behaviors (finding 1's black hole,
+> finding 3's deep-flood spawn_blocking wedge) still reproduce **by default**
+> — the remedy shipped as opt-in configuration, which the preview preset
+> applies. Finding 2 (`max_connections` serve-after-503) was not re-tested.
+
 > **Erratum note (2026-08-15):** these runs predate the harness cwd fix
 > (commit `e92483e`; see the erratum in `REPORT.md`). The workload here is
 > CPU-bound wp-real, which the DrvFs handicap barely moved, and the findings

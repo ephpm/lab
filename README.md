@@ -87,6 +87,30 @@ The full four-upstream matrix, the two pool defects, and the PostgreSQL
 pool-exhaustion cliff that v0.6.1 removed are in
 [the v0.6.1 database matrix](docs/ephpm-0.6.1-db-matrix.md).
 
+### v0.7.0 Verification Runs (source tier)
+
+Three recorded suites on a from-source ephpm main binary (`180d0ac`,
+sha256-pinned in each doc) — source-tier provenance, never comparable with the
+image-pinned numbers above:
+
+- **[shed-verify](docs/shed-verify-v070.md)** — the open-loop overload matrix
+  from the imported SHEDDING report, re-run on the post-fix binary: zero
+  SIGABRTs in 10 floods (was 3/10), `overload_policy = "shed"` converts 100%
+  of excess arrivals into 503s answered in p50 1.7 ms with **zero client
+  timeouts and full capacity retained as goodput**; the default-config black
+  hole and the deep-flood spawn_blocking wedge still reproduce (the remedy is
+  opt-in config / the preview preset).
+- **[kv-micro](docs/kv-micro-v070.md)** — first measurement behind the KV
+  guide's published numbers: `ephpm_kv_get` ≈ 116 ns at 64 B (the "~100 ns"
+  claim holds for small gets; sets ≈ 160 ns; 64 KB is copy-bound at 1–2 µs);
+  RESP round-trips 79–111 µs (inside the guide's "10–100 µs" band, but pinned
+  to its top end on this host).
+- **[containment-tax](docs/containment-tax-v070.md)** — `crash_containment`
+  A/B: happy-path deltas −0.4%…+0.8% (inside noise — "performance-free"
+  verified); a 500-crash storm: 500/500 contained, exact counter/log
+  accounting, concurrent traffic p99 0.86 ms with 0 errors, and the bounded
+  leak quantified at **~857 KB RSS per contained crash**.
+
 ### Clustered OPcache Invalidation
 
 One `ephpm deploy` invalidated OPcache across two ePHPm pods without rolling PHP processes. The PHP-FPM comparison used a rolling restart, which remained available but took longer at every recorded latency percentile.
@@ -173,6 +197,8 @@ This is a reproducible lab, not a universal benchmark. Earlier phases used three
 | `docs/assets/` | Rendered comparison charts used by this README. |
 | `k8s/` | Kubernetes manifests and k6 jobs for each benchmark phase. |
 | `scale/` | The source tier: multi-tenant scaling / overload harness and its recorded reports, imported from ephpm/multitenant-scalebench. Never table its numbers with the image-pinned tiers. |
+| `kv/` | kv-micro suite: `ephpm_kv_*` SAPI ns/op and RESP µs/op (source tier). |
+| `containment/` | containment-tax suite: `crash_containment` happy-path A/B and crash-storm lanes (source tier). |
 | `wordpress-v5/` | Account-free WordPress/WooCommerce fixture, seed scripts, and k6 probes. |
 | `patches/` | Local patch retained from an older source-built worker-mode experiment. |
 | `scripts/` | Helper scripts retained from earlier source-build experiments and v4 worker runs. |
