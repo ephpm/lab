@@ -22,11 +22,15 @@ query_stats = false
 
 [db.sqlite]
 path = "/data/bench.db"
-engine = "sqlite"
+# Turso, not rusqlite: v0.7.0 removed the rusqlite engine and rejects
+# engine = "sqlite" at startup. This lane must fail for the ORDERING
+# reason it exists to demonstrate, not for an engine-validation reason,
+# so it uses the engine that is valid on both v0.6.3 and v0.7.0.
+engine = "turso"
 
 [db.sqlite.proxy]
 # litewire moves off 3306 so the ephpm-db proxy can own the port PHP
-# connects to. PHP -> :3306 (proxy) -> :3307 (litewire) -> rusqlite.
+# connects to. PHP -> :3306 (proxy) -> :3307 (litewire) -> Turso.
 mysql_listen = "127.0.0.1:3307"
 
 [db.mysql]

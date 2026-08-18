@@ -241,9 +241,16 @@ echo "   db.php on the chained config: $(get http://dbbench-c1:8080/db.php)"
 cleanup
 
 # ---------------------------------------------------------------- lanes
-run_lane A-lite-inproc        single-sqlite.toml           sqlite       ""                    noleak "$LW" 'listen=127.0.0.1:3306'
+# The litewire lanes run on the Turso engine. Before v0.7.0 they used
+# rusqlite (single-sqlite.toml / litewire-sidecar-sqlite.toml) with a
+# separate Turso lane bolted on the end; v0.7.0 removed rusqlite, so the
+# whole group standardises on the one surviving engine. That is also what
+# makes this suite comparable ACROSS the v0.6.3 -> v0.7.0 bump: both
+# releases accept engine = "turso", so a delta here is a proxy/pool delta
+# rather than an engine delta.
+run_lane A-lite-inproc        single-turso.toml            sqlite       ""                    noleak "$LW" 'listen=127.0.0.1:3306'
 
-start_lw_node litewire-sidecar-sqlite.toml || exit 1
+start_lw_node litewire-sidecar-turso.toml || exit 1
 run_lane A2-lite-remote       proxy-none-direct.toml             sqlite       ""                    noleak "!$MYP" "!$PGP" "!$LW" -- \
          DB_HOST=dbbench-lw DB_PORT=3306
 run_lane B2-lite-proxy-pool   proxy-litewire-pool.toml   sqlite    ""                    leak   "$MYP" '!SQLite MySQL wire'
@@ -259,10 +266,10 @@ run_lane H-mysql-direct       proxy-none-direct.toml             mysql verify_my
 run_lane I-pg-direct          proxy-none-direct.toml             postgres    verify_pg_upstream    noleak "!$MYP" "!$PGP" "!$LW" -- \
          DB_HOST=dbbench-pg DB_PORT=5432 DB_NAME=bench DB_USER=postgres DB_PASSWORD=bench
 
-start_lw_node litewire-sidecar-turso.toml && {
-  run_lane J2-turso-proxy-pool proxy-litewire-pool.toml sqlite     ""                    leak   "$MYP"
-  stop_lw_node
-}
+# (The old J2-turso-proxy-pool lane lived here. It ran proxy-litewire-pool.toml
+# against a Turso sidecar while B2 ran the same config against a rusqlite one.
+# Now that the whole litewire group is Turso, J2 and B2 are the same lane, so
+# J2 is gone rather than measured twice under two names.)
 
 # PG session-pinning cliff probe: pool ON at the SHIPPED default cap of 20
 # backend connections, swept past it. A pinned-session proxy with a cap of

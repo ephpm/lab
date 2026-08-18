@@ -19,7 +19,7 @@ startup error with a migration message), the sqld sidecar, the
 
 | Suite | Pin | Why |
 | --- | --- | --- |
-| `proxy` | **v0.7.0** | Engine-independent — measures the wire hop and the pool in front of litewire / `mysql:8` / `postgres:16`. |
+| `proxy` | **v0.7.0** | Measures the wire hop and the pool in front of litewire / `mysql:8` / `postgres:16`. Its litewire lanes now run the **Turso** engine on both releases, so the suite is comparable across the bump. |
 | `bridge` | **v0.7.0** | The Turso lane is the whole suite now; the rusqlite lane is opt-in and separately pinned (below). |
 | `wp-bridge` | **v0.7.0** | Same split as `bridge`. |
 | `engines` | **v0.6.3, hard-pinned** | Three of four lanes are removed machinery. |
@@ -225,7 +225,7 @@ liveness and readiness both look healthy (see the "Still true in v0.6.1" notes
 on ePHPm's [results page](https://ephpm.dev/benchmarking/results/), which this
 step reproduces). STEP 0 archives the evidence as
 `db/results-proxy/FINDING-startup-order.log` each run. It is a gate in its own
-right: it *proves* the proxy-vs-litewire lanes (B2/C2/J2) had to use a separate
+right: it *proves* the proxy-vs-litewire lanes (B2/C2) had to use a separate
 litewire sidecar container, instead of leaving that as an assertion in prose.
 
 ## The Bridge Suites (`bridge`, `wp-bridge`)
