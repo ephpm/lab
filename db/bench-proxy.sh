@@ -257,14 +257,42 @@ run_lane B2-lite-proxy-pool   proxy-litewire-pool.toml   sqlite    ""           
 run_lane C2-lite-proxy-nopool proxy-litewire-nopool.toml sqlite    ""                    leak   "$MYP" '!SQLite MySQL wire'
 stop_lw_node
 
-run_lane D-mysql-proxy-pool   proxy-mysql-pool.toml   mysql verify_mysql_upstream leak   "$MYP"
-run_lane E-mysql-proxy-nopool proxy-mysql-nopool.toml mysql verify_mysql_upstream leak   "$MYP"
-run_lane F-pg-proxy-pool      proxy-postgres-pool.toml      postgres    verify_pg_upstream    noleak "$PGP"
-run_lane G-pg-proxy-nopool    proxy-postgres-nopool.toml    postgres    verify_pg_upstream    noleak "$PGP"
-run_lane H-mysql-direct       proxy-none-direct.toml             mysql verify_mysql_upstream noleak "!$MYP" "!$PGP" "!$LW" -- \
-         DB_HOST=dbbench-mysql DB_PORT=3306 DB_NAME=bench DB_USER=root DB_PASSWORD=
-run_lane I-pg-direct          proxy-none-direct.toml             postgres    verify_pg_upstream    noleak "!$MYP" "!$PGP" "!$LW" -- \
-         DB_HOST=dbbench-pg DB_PORT=5432 DB_NAME=bench DB_USER=postgres DB_PASSWORD=bench
+# The real-server lanes need the mysql:8 / postgres:16 upstreams to already
+# be running on $NET -- this suite does not create them (see DB-BENCH.md).
+# Check ONCE and say so, instead of letting six lanes each discover it
+# separately and print "!! FIXTURE WRONG -- lane invalid". Those messages
+# read like a product failure; the actual cause is a missing prerequisite,
+# and the two must not look the same in a results log.
+upstream_running() { podman container exists "$1" 2>/dev/null; }
+
+if upstream_running dbbench-mysql; then
+  run_lane D-mysql-proxy-pool   proxy-mysql-pool.toml   mysql verify_mysql_upstream leak   "$MYP"
+  run_lane E-mysql-proxy-nopool proxy-mysql-nopool.toml mysql verify_mysql_upstream leak   "$MYP"
+  run_lane H-mysql-direct       proxy-none-direct.toml             mysql verify_mysql_upstream noleak "!$MYP" "!$PGP" "!$LW" -- \
+           DB_HOST=dbbench-mysql DB_PORT=3306 DB_NAME=bench DB_USER=root DB_PASSWORD=
+else
+  echo ""
+  echo "== SKIPPING lanes D/E/H: no 'dbbench-mysql' container on $NET."
+  echo "   These lanes need a real MySQL upstream; start it first, e.g."
+  echo "     podman run -d --name dbbench-mysql --network $NET --cpus 4 \\"
+  echo "       -e MYSQL_ALLOW_EMPTY_PASSWORD=1 -e MYSQL_DATABASE=bench \\"
+  echo "       docker.io/library/mysql:8"
+  echo "   SKIPPED is not a measurement and not a failure -- it is absence."
+fi
+
+if upstream_running dbbench-pg; then
+  run_lane F-pg-proxy-pool      proxy-postgres-pool.toml      postgres    verify_pg_upstream    noleak "$PGP"
+  run_lane G-pg-proxy-nopool    proxy-postgres-nopool.toml    postgres    verify_pg_upstream    noleak "$PGP"
+  run_lane I-pg-direct          proxy-none-direct.toml             postgres    verify_pg_upstream    noleak "!$MYP" "!$PGP" "!$LW" -- \
+           DB_HOST=dbbench-pg DB_PORT=5432 DB_NAME=bench DB_USER=postgres DB_PASSWORD=bench
+else
+  echo ""
+  echo "== SKIPPING lanes F/G/I and F24-pg-cliff: no 'dbbench-pg' container on $NET."
+  echo "   Start it first, e.g."
+  echo "     podman run -d --name dbbench-pg --network $NET --cpus 4 \\"
+  echo "       -e POSTGRES_PASSWORD=bench -e POSTGRES_DB=bench \\"
+  echo "       docker.io/library/postgres:16"
+fi
 
 # (The old J2-turso-proxy-pool lane lived here. It ran proxy-litewire-pool.toml
 # against a Turso sidecar while B2 ran the same config against a rusqlite one.
@@ -275,16 +303,18 @@ run_lane I-pg-direct          proxy-none-direct.toml             postgres    ver
 # backend connections, swept past it. A pinned-session proxy with a cap of
 # 20 cannot serve 24 concurrent PHP requests without queueing on
 # pool_timeout, so this is where the cliff would show if it exists.
-banner "F24-pg-cliff (max_connections = 20, shipped default)"
-start_node proxy-postgres-pool-default20.toml postgres
-if wait_ready; then
-  check_log F24-pg-cliff "$PGP"
-  fixture_gate && {
-    measure F24-pg-cliff db.php    "16 20 24 32"
-    measure F24-pg-cliff write.php "16 24"
-  }
+if upstream_running dbbench-pg; then
+  banner "F24-pg-cliff (max_connections = 20, shipped default)"
+  start_node proxy-postgres-pool-default20.toml postgres
+  if wait_ready; then
+    check_log F24-pg-cliff "$PGP"
+    fixture_gate && {
+      measure F24-pg-cliff db.php    "16 20 24 32"
+      measure F24-pg-cliff write.php "16 24"
+    }
+  fi
+  cleanup
 fi
-cleanup
 
 echo ""
 echo "=== all lanes done; raw output in $OUT ==="

@@ -210,23 +210,89 @@ relayed to the pooled backend, and a permit-accounting deadlock it was masking
 that nearly became a headline, is in
 [docs/ephpm-0.6.1-db-matrix.md](docs/ephpm-0.6.1-db-matrix.md).
 
-## The Deliberately-Broken Config (proxy STEP 0)
+### Re-recorded: litewire proxy lanes on `v0.6.3-php8.5`, Turso (2026-08-18)
 
-`db/configs/proxy-litewire-inprocess-BROKEN.toml` is broken **on purpose**, and
-`db/bench-proxy.sh` runs it first ("STEP 0") on every invocation. It chains
-`[db.mysql]` (the proxy) in front of the *same process's* in-process
-`[db.sqlite]` litewire — a topology ePHPm cannot start: `start_db_proxies()`
-awaits the proxy's backend connect inline and the litewire branch runs after
-it, so the proxy spends its entire ~40 s ten-attempt backoff dialling a
-listener that cannot exist yet, then gives up **non-fatally and nearly
-silently** — the server goes on serving HTTP with nothing bound to the proxy
-port and every database page returning `[2002] Connection refused`, while
-liveness and readiness both look healthy (see the "Still true in v0.6.1" notes
-on ePHPm's [results page](https://ephpm.dev/benchmarking/results/), which this
-step reproduces). STEP 0 archives the evidence as
-`db/results-proxy/FINDING-startup-order.log` each run. It is a gate in its own
-right: it *proves* the proxy-vs-litewire lanes (B2/C2) had to use a separate
-litewire sidecar container, instead of leaving that as an assertion in prose.
+Same host and method as the `bridge` recording below. Only the litewire lanes
+ran; the `mysql:8` / `postgres:16` lanes (D/E/F/G/H/I and `F24-pg-cliff`) were
+**skipped** because their upstream containers were not running — see the
+skip-message change in `bench-proxy.sh`. Mean of 2 × 15 s reps, RPS.
+
+| Lane | `db.php` c=1 | c=16 | `write.php` c=1 | c=16 |
+| --- | ---: | ---: | ---: | ---: |
+| A — litewire in-process, no proxy | 401.9 | 629.0 | 747.0 | 1239.2 |
+| A2 — litewire sidecar, no proxy | 358.5 | 500.4 ⚠ | 346.5 ⚠ | 627.5 ⚠ |
+| B2 — sidecar via proxy, pooled | 295.8 | 680.7 | 691.2 | 1235.1 |
+| C2 — sidecar via proxy, no reuse | 230.7 | 334.1 ⚠ | 359.0 | 484.2 |
+
+The v0.6.1-era shape holds: at c=1 the proxy is a net loss against the direct
+sidecar (B2 296 vs A2 358, −17 %), and pooling is what buys it back at c=16
+(B2 681 vs C2 334, **+104 %**). The hop itself still costs (A 402 → B2 296 at
+c=1, though A is in-process and B2 crosses the podman bridge, so that pair is
+not a clean hop measurement — A2 is the right control).
+
+⚠ **Two integrity problems in this run, reported rather than smoothed:**
+
+1. **A2 produced HTTP 500s.** `A2 write c=16 rep 2` returned **1454 × HTTP
+   500** alongside 6867 × 200 — `db/parse.sh` flagged it `!!`. Per gate 5 that
+   cell is not a measurement, and the A2 write row above should be read as
+   suspect, not as a number.
+2. **A2 is wildly unstable at c=1 on writes**: reps of 444.5 and 248.6 RPS
+   (56 % spread) — far outside this suite's "treat <20 % as unresolved" rule.
+   `C2 db c=16` (289.6 / 378.5) and `A2 db c=16` (403.0 / 597.8) are similarly
+   unstable.
+
+Whether that instability is the sidecar topology, the litewire frontend under
+concurrent writes, or this host is **not established by this run**. It is
+logged here as an open question, not as a v0.6.3 defect claim.
+
+## The Formerly-Broken Config (proxy STEP 0) — **fixed upstream**
+
+`db/configs/proxy-litewire-inprocess-BROKEN.toml` chains `[db.mysql]` (the
+proxy) in front of the *same process's* in-process `[db.sqlite]` litewire, and
+`db/bench-proxy.sh` runs it first ("STEP 0") on every invocation.
+
+**Historically (v0.6.1 and earlier)** this was a topology ePHPm could not
+start: `start_db_proxies()` awaited the proxy's backend connect inline and the
+litewire branch ran after it, so the proxy spent its entire ~40 s ten-attempt
+backoff dialling a listener that could not exist yet, then gave up
+**non-fatally and nearly silently** — the server went on serving HTTP with
+nothing bound to the proxy port and every database page returning
+`[2002] Connection refused`, while liveness and readiness both looked healthy.
+That is the behaviour recorded in the "Still true in v0.6.1" notes on ePHPm's
+[results page](https://ephpm.dev/benchmarking/results/).
+
+**It no longer reproduces.** Re-run on `v0.6.3-php8.5` (2026-08-18), STEP 0
+produced a *working* chain. The proxy now binds first and resolves its upstream
+asynchronously:
+
+```
+INFO ephpm_db::mysql: MySQL proxy listening (upstream connect continues in the
+     background) listen=127.0.0.1:3306 upstream=127.0.0.1:3307
+INFO ephpm_server: SQLite MySQL wire protocol enabled listen=127.0.0.1:3307
+WARN ephpm_db::health: database proxy upstream connect failed: Connection
+     refused (os error 111) ... failures=1
+INFO ephpm_db::mysql: backend connection established after retry attempt=2
+```
+
+One refused attempt, then connected ~250 ms later; `db.php` returned a real SQL
+error (`no such table: bench` — STEP 0 never seeds) instead of
+`[2002] Connection refused`. The inline-await ordering defect is gone.
+
+Two consequences, both of which should be carried upstream:
+
+1. **ephpm.dev's results page is stale on this point** — the "Still true in
+   v0.6.1" note describes behaviour that a v0.6.3 image does not exhibit.
+2. **STEP 0 is no longer a gate.** It used to *prove* that the
+   proxy-vs-litewire lanes (B2/C2) had to use a separate litewire sidecar
+   container. That proof is gone; the sidecar is now a deliberate isolation
+   choice (it keeps the proxy and the backend in separate `--cpus 1` cgroups,
+   matching the other container-to-container lanes) rather than a forced one.
+
+The step is retained because it still archives
+`db/results-proxy/FINDING-startup-order.log` every run, which is what caught
+the change. The config's `engine` was switched from `"sqlite"` to `"turso"` in
+the v0.7.0 pin bump; the fix above is in proxy startup sequencing and is
+engine-independent, but note the two changes landed in the same run.
 
 ## The Bridge Suites (`bridge`, `wp-bridge`)
 
@@ -271,15 +337,61 @@ cells): `wpdb` for the wire cells, `Ephpm\Db\WordPress\Db` for the bridge
 cells. A fallen-back bridge cell fails the gate instead of benchmarking the
 wire path under the wrong label.
 
-**No lab numbers yet.** These suites landed with the v0.6.3 pin bump and have
-not been recorded with this harness. For scale, the ephpm-side development
-benches this week (dev box, WSL, LTO off — *not* this harness, *not* the
-published image, do not put them in a table with anything above): a bridge
-point-select ran ~61 µs on rusqlite and ~3.4 µs on the Turso engine, against
-roughly 200 µs for the same query over the wire path, and WordPress pages
-rendered 10–16% faster with the drop-in. Treat those as the hypothesis this
-suite exists to check on a published image, not as results. Reference numbers
-will be recorded on `ephpm/ephpm:v0.6.3-php8.5` and added here.
+### Recorded: `bridge` on `ephpm/ephpm:v0.6.3-php8.5` (2026-08-18)
+
+First recording of this suite with this harness. Host: Windows 11, podman
+machine 32 vCPU / 62 GiB, ePHPm container `--cpus 1`, `oha`, 8 s warmup plus
+**2 × 15 s** timed reps per cell, machine load average 0.00–0.96 throughout.
+**Every cell below was 100 % HTTP 200.** Mean of the two reps, RPS.
+
+Both lanes ran on the **same image**, differing only in `[db.sqlite] engine`,
+so this is a clean rusqlite-vs-Turso A/B — the last release on which that
+comparison is possible at all.
+
+| Cell | rusqlite | Turso | Turso vs rusqlite |
+| --- | ---: | ---: | ---: |
+| wire-point c=1 | 384.6 | 403.6 | +4.9 % |
+| wire-point c=16 | 629.3 | 560.1 | −11.0 % ⚠ |
+| wire-write c=1 | 771.0 | 718.0 | −6.9 % |
+| wire-write c=16 | 1333.4 | 1239.7 | −7.0 % |
+| wire-wide c=1 | 704.9 | 655.4 | −7.0 % |
+| wire-wide c=16 | 1214.7 | 1104.0 | −9.1 % |
+| bridge-point c=1 | 663.7 | 915.7 | **+38.0 %** |
+| bridge-point c=16 | 1108.5 | 1585.8 | **+43.1 %** |
+| bridge-write c=1 | 1054.5 | 1037.3 | −1.6 % |
+| bridge-write c=16 | 1543.2 | 1651.2 | +7.0 % |
+| bridge-wide c=1 | 899.3 | 944.3 | +5.0 % |
+| bridge-wide c=16 | 1617.3 | 1624.4 | +0.4 % |
+
+⚠ `wire-point c=16` on Turso is the one noisy cell in the run: reps of 599.7
+and 520.5 (13 % spread). Per this file's own two-reps caveat, treat it as
+unresolved rather than as a −11 % result.
+
+**What the bridge is worth** (same lane, wire vs its bridge twin):
+
+| | rusqlite | Turso |
+| --- | ---: | ---: |
+| point-select c=1 | 1.73× | **2.27×** |
+| point-select c=16 | 1.76× | **2.83×** |
+| insert c=1 | 1.37× | 1.44× |
+| insert c=16 | 1.16× | 1.33× |
+| wide-select c=1 | 1.28× | 1.44× |
+| wide-select c=16 | 1.33× | 1.47× |
+
+Deleting the wire is worth 1.2–1.8× on rusqlite and 1.3–2.8× on Turso. The
+engine choice barely moves the **wire** path (it is dominated by connect and
+protocol cost) but moves the **bridge** path a lot — which is the expected
+shape: the bridge is the only path where engine time is a large share of the
+request.
+
+For scale, the earlier ephpm-side development benches (dev box, WSL, LTO off —
+*not* this harness, *not* the published image, do not table them with the
+above) measured a bridge point-select at ~61 µs on rusqlite and ~3.4 µs on
+Turso against ~200 µs over the wire. Those in-process microbench ratios do
+**not** survive to the HTTP level: end to end the bridge is worth 2.3–2.8× on
+Turso, not 60×, because a full request is mostly PHP and HTTP, not SQL.
+
+**`wp-bridge` has still not been recorded** with this harness.
 
 ## Caveats
 
