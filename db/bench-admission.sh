@@ -35,7 +35,22 @@
 # /usr/bin/grep explicitly. Raw oha output is kept per cell regardless.
 set -uo pipefail
 
-BASE_IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
+# ---------------------------------------------------------------------------
+# HISTORICAL SUITE -- HARD-PINNED TO v0.6.3. DO NOT BUMP.
+#
+# Every lane here sweeps `[db.sqlite.sqld] write_permits`, a knob ePHPm
+# REMOVED in v0.7.0 along with the sqld sidecar and the rusqlite engine
+# the cluster configs select. On a v0.7.0 image the configs fail at
+# startup (engine = "sqlite") and the knob no longer exists at all, so
+# there is nothing left for this sweep to sweep.
+#
+# The pin is hardcoded rather than read from EPHPM_IMAGE for the same
+# reason the suite already has a startup-log gate: the top-level driver
+# now defaults to a v0.7.0 image, and silently inheriting it would either
+# kill every lane or (worse, if a config ever became startable) benchmark
+# a lane wearing a label whose mechanism is gone.
+# ---------------------------------------------------------------------------
+BASE_IMG="${EPHPM_ADMISSION_BASE_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
 ADM_IMG="${EPHPM_ADMISSION_IMAGE:-$BASE_IMG}"
 OHA=ghcr.io/hatoo/oha:latest
 CURL=docker.io/curlimages/curl:latest

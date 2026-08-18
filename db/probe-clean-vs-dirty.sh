@@ -26,7 +26,7 @@ set -uo pipefail
 G=/usr/bin/grep
 NET=dbbench-net
 CURL=docker.io/curlimages/curl:latest
-IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
+IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.7.0-php8.5}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="$HERE/results-proxy"
 get() { podman run --rm --network "$NET" "$CURL" -s --max-time 20 "$1" 2>/dev/null; }

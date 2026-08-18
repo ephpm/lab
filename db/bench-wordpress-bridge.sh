@@ -2,8 +2,11 @@
 # WordPress on the embedded database: mysqli wire vs the
 # ephpm/db-wordpress drop-in (wp-content/db.php), per engine.
 #
-#   wp-sqlite   rusqlite engine (production default)
-#   wp-turso    Turso engine (experimental)
+#   wp-sqlite   rusqlite engine -- REMOVED in ePHPm v0.7.0. Opt-in via
+#               WP_BRIDGE_LEGACY_SQLITE=1, and then only on the pinned
+#               v0.6.3 image; a historical row, not a lane of this run.
+#   wp-turso    Turso engine -- the only engine from v0.7.0 on, and the
+#               default lane of this suite.
 #
 # Each lane is ONE ePHPm container serving a real WordPress install from
 # the embedded database, measured twice on two pages:
@@ -34,7 +37,11 @@
 # /usr/bin/grep explicitly, and raw oha output is kept in results/.
 set -uo pipefail
 
-IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
+# See bench-bridge.sh: the rusqlite lane cannot run on v0.7.0+ (hard startup
+# error), so it is opt-in and hard-pinned to the last image that has it.
+# Two lanes on two ePHPm releases are not an engine A/B -- keep them apart.
+IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.7.0-php8.5}"
+LEGACY_IMG="${EPHPM_LEGACY_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
 OHA=ghcr.io/hatoo/oha:latest
 CURL=docker.io/curlimages/curl:latest
 WPCLI=docker.io/library/wordpress:cli
@@ -162,9 +169,10 @@ measure() {  # cellname url
   done
 }
 
-run_lane() {  # lane cfg
-  LANE="$1"; local cfg="$2"
+run_lane() {  # lane cfg img
+  LANE="$1"; local cfg="$2" img="$3"
   echo ""; echo "############ LANE $LANE ($cfg, --cpus $CPUS) ############"
+  echo "   image: $img"
   cleanup
   podman volume rm -f "dbv-$LANE" >/dev/null 2>&1 || true
   podman volume create "dbv-$LANE" >/dev/null
@@ -172,7 +180,7 @@ run_lane() {  # lane cfg
     -v "$HTMLVOL:/var/www/html" \
     -v "$HERE/configs/$cfg:/etc/ephpm/ephpm.toml:ro" \
     -v "dbv-$LANE:/data" \
-    "$IMG" >/dev/null
+    "$img" >/dev/null
   if ! wait_db; then
     echo "!! $LANE MySQL frontend never became ready:"; podman logs wpbridge 2>&1 | tail -40; return 1
   fi
@@ -206,8 +214,14 @@ run_lane() {  # lane cfg
 }
 
 FAILED=0
-run_lane wp-sqlite wp-bridge-sqlite.toml || FAILED=1
-run_lane wp-turso  wp-bridge-turso.toml  || FAILED=1
+if [ "${WP_BRIDGE_LEGACY_SQLITE:-0}" = 1 ]; then
+  if [ "$LEGACY_IMG" != "$IMG" ]; then
+    echo "!! lane wp-sqlite runs on $LEGACY_IMG, lane wp-turso on $IMG --"
+    echo "!! a whole release apart. Separate historical row, never one table."
+  fi
+  run_lane wp-sqlite wp-bridge-sqlite.toml "$LEGACY_IMG" || FAILED=1
+fi
+run_lane wp-turso  wp-bridge-turso.toml  "$IMG" || FAILED=1
 
 echo ""
 if [ "$FAILED" = 1 ]; then

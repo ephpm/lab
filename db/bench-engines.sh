@@ -17,7 +17,30 @@
 # measurement again.
 set -uo pipefail
 
-IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
+# ---------------------------------------------------------------------------
+# HISTORICAL SUITE -- HARD-PINNED TO v0.6.3. DO NOT BUMP.
+#
+# Three of this matrix's four lanes exercise machinery ePHPm REMOVED in
+# v0.7.0, so this suite is not runnable on a current image:
+#   A (single-sqlite.toml)      engine = "sqlite"    -> hard startup error
+#   C (cluster-sqlite-*.toml)   engine = "sqlite" + sqld sidecar -> gone
+#   D (cluster-turso-*.toml)    replication.cdc_experimental -> knob removed;
+#                               ephpm-config does not reject unknown fields,
+#                               so on v0.7.0 that line is silently ignored
+#                               and lane D would be a DIFFERENT topology
+#                               wearing lane D's label.
+# Only lane B (Turso single-node) would survive, and a one-lane "engine
+# comparison" has no control arm.
+#
+# The pin is therefore hardcoded rather than read from EPHPM_IMAGE: the
+# top-level driver (scripts/run-db-bench.sh) now defaults to a v0.7.0
+# image, and inheriting it here would produce three dead lanes and one
+# mislabelled one. Replacing this suite for v0.7.0 means a NEW
+# Turso-single vs Turso-CDC-clustered matrix, not edits to these lanes.
+# EPHPM_ENGINES_IMAGE is the deliberate override if you know why you want
+# one.
+# ---------------------------------------------------------------------------
+IMG="${EPHPM_ENGINES_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
 OHA=ghcr.io/hatoo/oha:latest
 CURL=docker.io/curlimages/curl:latest
 NET=dbbench-net

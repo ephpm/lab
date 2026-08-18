@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # In-process bridge vs MySQL wire, same engine, same process.
 #
-#   A  sqlite  rusqlite in-process (production default)
-#   B  turso   Turso engine in-process (experimental)
+#   A  sqlite  rusqlite in-process -- REMOVED in ePHPm v0.7.0. Opt-in via
+#              BRIDGE_LEGACY_SQLITE=1, and then only on the pinned v0.6.3
+#              image; it is a historical row, not a lane of this run.
+#   B  turso   Turso engine in-process -- the only engine from v0.7.0 on,
+#              and the default lane of this suite.
 #
 # Each lane runs ONE container and measures six cells against it:
 #
@@ -33,7 +36,14 @@
 # measurement again.
 set -uo pipefail
 
-IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
+# The Turso lane runs on the current pin. The rusqlite lane CANNOT: v0.7.0
+# removed that engine and `engine = "sqlite"` is a hard startup error, so
+# lane A is opt-in (BRIDGE_LEGACY_SQLITE=1) and hard-pinned to the last
+# image that has the engine. Two lanes on two different ePHPm versions are
+# NOT an engine A/B -- they differ by a whole release. If you enable lane A,
+# report it as a separate historical row, never in one table with lane B.
+IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.7.0-php8.5}"
+LEGACY_IMG="${EPHPM_LEGACY_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
 OHA=ghcr.io/hatoo/oha:latest
 CURL=docker.io/curlimages/curl:latest
 NET=dbbench-net
@@ -89,9 +99,10 @@ gate() {  # description urlpath expected-substring
   esac
 }
 
-run_lane() {  # lane cfg
-  LANE="$1"; local cfg="$2"
+run_lane() {  # lane cfg img
+  LANE="$1"; local cfg="$2" img="$3"
   echo ""; echo "############ LANE $LANE ($cfg, single-node, --cpus $CPUS) ############"
+  echo "   image: $img"
   cleanup
   podman volume rm -f "dbv-$LANE" >/dev/null 2>&1 || true
   podman volume create "dbv-$LANE" >/dev/null
@@ -100,7 +111,7 @@ run_lane() {  # lane cfg
     -v "$HERE/fixtures/bridge:/var/www/html/bridge:ro" \
     -v "$HERE/configs/$cfg:/etc/ephpm/ephpm.toml:ro" \
     -v "dbv-$LANE:/data" \
-    "$IMG" >/dev/null
+    "$img" >/dev/null
   if ! wait_ready; then
     echo "!! $LANE never became ready:"; podman logs dbbench-c1 2>&1 | tail -40; return 1
   fi
@@ -129,8 +140,16 @@ run_lane() {  # lane cfg
 }
 
 FAILED=0
-run_lane A-sqlite single-sqlite.toml || FAILED=1
-run_lane B-turso  single-turso.toml  || FAILED=1
+# Lane A is the removed rusqlite engine: opt-in, and on its own pinned image.
+if [ "${BRIDGE_LEGACY_SQLITE:-0}" = 1 ]; then
+  if [ "$LEGACY_IMG" != "$IMG" ]; then
+    echo "!! lane A-sqlite runs on $LEGACY_IMG, lane B-turso on $IMG."
+    echo "!! Those differ by a whole ePHPm release, not just an engine: report"
+    echo "!! A as a separate historical row, never in one table with B."
+  fi
+  run_lane A-sqlite single-sqlite.toml "$LEGACY_IMG" || FAILED=1
+fi
+run_lane B-turso  single-turso.toml  "$IMG" || FAILED=1
 
 echo ""
 if [ "$FAILED" = 1 ]; then

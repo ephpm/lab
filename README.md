@@ -8,18 +8,32 @@ A reproducible Kubernetes lab for people deciding whether ePHPm belongs in their
 
 ## Relationship to ePHPm v0.7.0
 
-> **Historical (pre-v0.7.0).** The database suites pin `ephpm/ephpm:v0.6.3` and
-> parts of them exercise machinery that **no longer exists upstream**. ePHPm
-> v0.7.0 removed the rusqlite engine (`[db.sqlite] engine = "sqlite"` is now a
-> **hard startup error**), the sqld sidecar, the `[db.sqlite.sqld]
-> write_permits` admission knob, and the `cdc_experimental` knob; Turso is the
-> only embedded engine and clustered replication runs over the in-process Turso
-> CDC path. The `engines`, `admission`, and sqld-cluster lanes in
-> [DB-BENCH.md](DB-BENCH.md) therefore run only against the pinned v0.6.3
-> image and **will not run against v0.7.0+ images**. Their recorded numbers are
-> retained as the parity evidence behind the engine switch — the same way
-> ePHPm's own [benchmarking results page](https://ephpm.dev/benchmarking/results/)
-> marks those sections historical.
+The lab's live pins are **`ephpm/ephpm:v0.7.0-php8.4`** (the Kubernetes suites)
+and **`ephpm/ephpm:v0.7.0-php8.5`** (the single-host database tier).
+
+Two database suites are the exception and stay **hard-pinned to v0.6.3**,
+because they measure machinery that **no longer exists upstream**. ePHPm
+v0.7.0 removed the rusqlite engine (`[db.sqlite] engine = "sqlite"` is now a
+**hard startup error**), the sqld sidecar, the `[db.sqlite.sqld]
+write_permits` admission knob, and the `cdc_experimental` knob; Turso is the
+only embedded engine and clustered replication runs over the in-process Turso
+CDC path. The `engines` and `admission` suites in [DB-BENCH.md](DB-BENCH.md)
+therefore **ignore `--image`** and run only against v0.6.3. Their recorded
+numbers are retained as the parity evidence behind the engine switch — the
+same way ePHPm's own
+[benchmarking results page](https://ephpm.dev/benchmarking/results/) marks
+those sections historical. The `bridge` and `wp-bridge` suites keep their
+rusqlite lanes on the same footing: opt-in, and pinned to v0.6.3 when enabled.
+
+> **The v0.7.0 bump crosses an engine change, so read database deltas
+> carefully.** Any v0.6.3-vs-v0.7.0 comparison on a database-touching path is
+> comparing *two different engines*, not two versions of one. Paths that never
+> reach the database (the `hello`/`cpu` runtime fixtures, the cache-heavy
+> Laravel/native-KV lanes) are like-for-like; `db.php`, the bridge suites and
+> WordPress-on-the-embedded-database are not. The
+> `k8s/runtimes-bench.yaml` `bench-ephpm-turso` lane, which existed purely to
+> A/B the engine knob, is retired at `replicas: 0` for the same reason: on
+> v0.7.0 it would be the `bench-ephpm` lane wearing a second label.
 
 ## The Numbers
 

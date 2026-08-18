@@ -12,27 +12,42 @@ different upstreams.
 
 ## Relationship to ePHPm v0.7.0
 
-> **Historical (pre-v0.7.0).** This file's suites pin `v0.6.3`, and three of
-> them exercise machinery that was **removed upstream in v0.7.0**: the rusqlite
-> engine (`[db.sqlite] engine = "sqlite"` is now a hard startup error with a
-> migration message), the sqld sidecar, the `[db.sqlite.sqld] write_permits`
-> knob, and `cdc_experimental`. Concretely, on a v0.7.0+ image:
->
-> - the `engines` suite's rusqlite and sqld-cluster lanes fail at startup
->   (`single-sqlite.toml`, `cluster-sqlite-*.toml`), and the rusqlite half of
->   `bridge` fails the same way;
-> - the entire `admission` suite sweeps a knob that no longer exists — the
->   startup-log gate will correctly refuse every permit lane;
-> - the Turso-vs-rusqlite comparison itself is no longer reproducible on any
->   shippable image, because there is only one engine.
->
-> These suites are retained **as the historical record against the pinned
-> v0.6.3 image** — the parity evidence behind the v0.7.0 engine switch — the
-> same way ePHPm's own
+The v0.7.0 pin bump **split this file's suites in two**, because v0.7.0
+removed the rusqlite engine (`[db.sqlite] engine = "sqlite"` is now a hard
+startup error with a migration message), the sqld sidecar, the
+`[db.sqlite.sqld] write_permits` knob, and `cdc_experimental`.
+
+| Suite | Pin | Why |
+| --- | --- | --- |
+| `proxy` | **v0.7.0** | Engine-independent — measures the wire hop and the pool in front of litewire / `mysql:8` / `postgres:16`. |
+| `bridge` | **v0.7.0** | The Turso lane is the whole suite now; the rusqlite lane is opt-in and separately pinned (below). |
+| `wp-bridge` | **v0.7.0** | Same split as `bridge`. |
+| `engines` | **v0.6.3, hard-pinned** | Three of four lanes are removed machinery. |
+| `admission` | **v0.6.3, hard-pinned** | Sweeps a knob that no longer exists. |
+
+The two historical suites **ignore `--image` / `EPHPM_IMAGE`** and read
+`EPHPM_ENGINES_IMAGE` / `EPHPM_ADMISSION_BASE_IMAGE` instead. That is
+deliberate: `scripts/run-db-bench.sh` now defaults to a v0.7.0 image, and
+letting these inherit it would give `engines` three dead lanes plus one
+*silently mislabelled* one — `cluster-turso-primary.toml` sets
+`replication.cdc_experimental = true`, `ephpm-config` does not reject unknown
+fields, so on v0.7.0 that line is ignored and lane D would be a different
+topology wearing lane D's name.
+
+The rusqlite halves of `bridge` and `wp-bridge` survive the same way: opt-in
+via `BRIDGE_LEGACY_SQLITE=1` / `WP_BRIDGE_LEGACY_SQLITE=1`, and then hard-run
+on the v0.6.3 image. **A v0.6.3 rusqlite lane and a v0.7.0 Turso lane differ
+by a whole release, not by an engine** — the scripts print each lane's image
+in its banner and warn on the legacy lane for exactly that reason. Never put
+them in one table.
+
+> **Historical numbers stay historical.** Every recorded table below was taken
+> on the v0.6.0/v0.6.1/v0.6.3 lines and is retained as the parity evidence
+> behind the v0.7.0 engine switch — the same way ePHPm's own
 > [results page](https://ephpm.dev/benchmarking/results/) marks its pre-v0.7.0
-> engine and admission sections historical. A future v0.7.0 pin bump replaces
-> them with a Turso-single vs Turso-CDC-clustered matrix rather than editing
-> these lanes.
+> engine and admission sections historical. Replacing the `engines` matrix for
+> v0.7.0 means a **new** Turso-single vs Turso-CDC-clustered suite, not edits
+> to these lanes.
 
 ## Why This Runs On Podman, Not Kubernetes
 
@@ -51,30 +66,36 @@ the place for that, and the two tiers must never be put in the same table.
 
 > **Which image these numbers need.** The proxy results below require a build
 > with the v0.6.1 pool fixes (ePHPm main `bdc9861` or later). The harness now
-> defaults to `ephpm/ephpm:v0.6.3-php8.5`, which contains those fixes, the
-> `write_permits` admission knob, and the `ephpm_db_*` in-process bridge — so
-> every suite in this file, including `bridge`, runs on the default image. On
-> anything older than v0.6.1 the pooled lanes reproduce the two defects rather
-> than the numbers, and on anything older than v0.6.3 the `bridge` suite fails
-> its function-registration gate.
+> defaults to `ephpm/ephpm:v0.7.0-php8.5`, which contains those fixes and the
+> `ephpm_db_*` in-process bridge, so `proxy`, `bridge` and `wp-bridge` all run
+> on the default image. On anything older than v0.6.1 the pooled lanes
+> reproduce the two defects rather than the numbers, and on anything older than
+> v0.6.3 the `bridge` suite fails its function-registration gate. The
+> `engines` and `admission` suites do **not** follow this default — see
+> "Relationship to ePHPm v0.7.0" above.
 
 ## Suites
 
 | Suite | Question | Runs on |
 | --- | --- | --- |
-| `engines` | rusqlite vs Turso, single-node vs clustered sqld | Published image |
-| `admission` | Does bounded write admission fix the clustered write collapse? | v0.6.1+ (knob merged in ephpm#222) |
+| `engines` | rusqlite vs Turso, single-node vs clustered sqld | **v0.6.3 only** (historical; hard-pinned) |
+| `admission` | Does bounded write admission fix the clustered write collapse? | **v0.6.3 only** (historical; hard-pinned) |
 | `proxy` | What does the DB proxy cost (a hop) and buy (pooling)? | v0.6.1+ (pool fixes in ephpm#221) |
-| `bridge` | What does skipping the wire entirely buy? `ephpm_db_*` vs pdo_mysql, per engine | v0.6.3+ (bridge shipped in ephpm#257/#258) |
+| `bridge` | What does skipping the wire entirely buy? `ephpm_db_*` vs pdo_mysql | v0.6.3+ (bridge shipped in ephpm#257/#258) |
 | `wp-bridge` | Does the bridge move a real app? WordPress with the db-wordpress drop-in vs mysqli | v0.6.3+ |
 
 ```bash
-./scripts/run-db-bench.sh engines
-./scripts/run-db-bench.sh admission        # needs v0.6.1+ (default image is fine)
+./scripts/run-db-bench.sh engines          # historical, always v0.6.3
+./scripts/run-db-bench.sh admission        # historical, always v0.6.3
 ./scripts/run-db-bench.sh proxy
-./scripts/run-db-bench.sh bridge           # needs v0.6.3+ (ephpm_db_* functions)
-./scripts/run-db-bench.sh wp-bridge        # needs v0.6.3+ and network on first run
-./scripts/run-db-bench.sh all --image docker.io/ephpm/ephpm:v0.6.3-php8.5
+./scripts/run-db-bench.sh bridge           # Turso lane only by default
+./scripts/run-db-bench.sh wp-bridge        # needs network on first run
+./scripts/run-db-bench.sh all --image docker.io/ephpm/ephpm:v0.7.0-php8.5
+
+# Opt into the removed-engine lanes. These run on v0.6.3 no matter what
+# --image says, and belong in their own table:
+BRIDGE_LEGACY_SQLITE=1    ./scripts/run-db-bench.sh bridge
+WP_BRIDGE_LEGACY_SQLITE=1 ./scripts/run-db-bench.sh wp-bridge
 ```
 
 ## Fixtures
@@ -219,8 +240,10 @@ the MySQL wire frontend serves**. Same dialect translation, same
 resultset protocol.
 
 The `bridge` suite measures what that deletion is worth. One container per
-engine (rusqlite and Turso, `single-sqlite.toml` / `single-turso.toml`), six
-cells each: {point-select, insert, wide-select} × {wire, bridge}. Wire and
+engine — on the v0.7.0 pin that is the Turso lane alone (`single-turso.toml`);
+the rusqlite lane (`single-sqlite.toml`) is opt-in and runs on v0.6.3, see
+above — six cells each: {point-select, insert, wide-select} × {wire, bridge}.
+Wire and
 bridge cells run against the **same process**, so nothing differs but the
 path. The wire cells keep their per-request PDO connect deliberately — that is
 what a real PHP request pays without persistent connections, and removing it
@@ -281,12 +304,21 @@ will be recorded on `ephpm/ephpm:v0.6.3-php8.5` and added here.
   pessimistic against a hypothetical true no-pool build.
 
 - **The `engines` and `admission` numbers were recorded on the v0.6.0/v0.6.1
-  lines and the harness defaults have since moved to v0.6.3.** As with the
-  v0.5.0 autotuning note in `RUNTIMES-BENCH.md`, a version bump changes the
-  effective configuration, so numbers recorded across a bump are not directly
-  comparable. Re-record rather than assume.
-- **The `admission` suite needs v0.6.1 or later** — satisfied by the default
-  image since the v0.6.3 pin bump. The `write_permits` knob it sweeps merged in
+  lines and cannot be re-recorded.** As with the v0.5.0 autotuning note in
+  `RUNTIMES-BENCH.md`, a version bump changes the effective configuration, so
+  numbers recorded across a bump are not directly comparable — and here the
+  bump deleted the mechanism outright, so there is no later version to
+  re-record on. They are frozen evidence, not a baseline to compare against.
+
+- **A v0.7.0 number and a v0.6.3 number on any database path are an engine
+  comparison.** v0.7.0 has one embedded engine (Turso); v0.6.3's default was
+  the genuine-SQLite C engine. A Turso-lane-to-Turso-lane comparison across
+  the two releases *is* meaningful (same engine, different release); a
+  v0.6.3 rusqlite lane against a v0.7.0 lane is not, and the harness keeps
+  them apart deliberately. Say which you are reporting.
+
+- **The `admission` suite needs v0.6.1 or later** — satisfied by its
+  hard-pinned v0.6.3 image. The `write_permits` knob it sweeps merged in
   [ephpm#222](https://github.com/ephpm/ephpm/pull/222) and is not in v0.6.0 or
   earlier; on an older image the `baseline` row is all you get — which on its
   own demonstrates the collapse that motivated the knob. The suite gates on the

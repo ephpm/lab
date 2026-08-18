@@ -95,10 +95,12 @@ data:
     mysql_listen = "127.0.0.1:3306"
 
 # ---------------------------------------------------------------------------
-# ePHPm config variant: EXPERIMENTAL Turso Database engine for the db lane.
-# Identical to bench-ephpm-config except [db.sqlite] engine = "turso".
-# The engine knob shipped in v0.6.0, which this manifest now pins, so the
-# lane is live — see the bench-ephpm-turso Deployment comment.
+# ePHPm config variant: Turso engine for the db lane. RETIRED on the v0.7.0
+# pin. Identical to bench-ephpm-config except the now-redundant
+# [db.sqlite] engine = "turso" line: on v0.7.0 "turso" is the only value the
+# knob accepts, so this ConfigMap and bench-ephpm-config select the same
+# engine. Kept (with the Deployment scaled to 0) as the record of what the
+# A/B lane was — see the bench-ephpm-turso Deployment comment.
 # ---------------------------------------------------------------------------
 ---
 apiVersion: v1
@@ -407,7 +409,7 @@ spec:
     spec:
       containers:
       - name: ephpm
-        image: ephpm/ephpm:v0.6.3-php8.4
+        image: ephpm/ephpm:v0.7.0-php8.4
         ports:
         - containerPort: 8080
         resources:
@@ -454,17 +456,16 @@ spec:
     targetPort: 8080
 
 # ---------------------------------------------------------------------------
-# 1b. ePHPm + EXPERIMENTAL Turso engine — db lane only. The `[db.sqlite]
-#     engine` knob shipped in v0.6.0 and this manifest pins v0.6.3, so the
-#     lane is enabled (replicas: 1). NOTE: no k6 Job drives this lane —
-#     it is deployed but undriven; measure it by hand as described below.
-#     Verify the engine actually engaged before trusting any number: the
-#     pod log must show the experimental-engine startup warning. Then run
-#     the db.php k6 profile against http://bench-ephpm-turso:8080/db.php
-#     and compare against the bench-ephpm lane's db.php result.
-#     The engine is still upstream-Beta and single-node only; ePHPm rejects
-#     `engine = "turso"` combined with clustered SQLite at startup. For the
-#     single-host measurement of the same question, see DB-BENCH.md.
+# 1b. ePHPm + Turso engine — RETIRED (replicas: 0) on the v0.7.0 pin.
+#     This lane existed to A/B the `[db.sqlite] engine` knob against the
+#     genuine-SQLite C engine that was the v0.6.x default. v0.7.0 removed
+#     that engine: "turso" is now the only accepted value and the default,
+#     so this Deployment and `bench-ephpm` would run the SAME engine and the
+#     A/B has no control arm left. It is scaled to 0 rather than deleted so
+#     the manifest still records what the lane was; its recorded v0.6.x
+#     numbers stay in DB-BENCH.md as historical.
+#     Do NOT scale it back to 1 and report it as an engine comparison on a
+#     v0.7.0+ pin — it would be `bench-ephpm` wearing a second label.
 # ---------------------------------------------------------------------------
 ---
 apiVersion: apps/v1
@@ -476,7 +477,8 @@ metadata:
     bench-class: a
     runtime: ephpm-turso
 spec:
-  replicas: 1
+  # RETIRED on the v0.7.0 pin - see the comment block above.
+  replicas: 0
   selector:
     matchLabels:
       app: bench-ephpm-turso
@@ -489,7 +491,7 @@ spec:
     spec:
       containers:
       - name: ephpm
-        image: ephpm/ephpm:v0.6.3-php8.4
+        image: ephpm/ephpm:v0.7.0-php8.4
         ports:
         - containerPort: 8080
         resources:
@@ -1242,7 +1244,7 @@ spec:
     spec:
       containers:
       - name: ephpm
-        image: ephpm/ephpm:v0.6.3-php8.4
+        image: ephpm/ephpm:v0.7.0-php8.4
         ports:
         - containerPort: 8080
         resources:

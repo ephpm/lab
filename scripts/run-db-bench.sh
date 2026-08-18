@@ -5,12 +5,20 @@
 # Usage:
 #   ./scripts/run-db-bench.sh <suite> [--image IMG] [--dur 15s] [--reps 2]
 #
-#   suite = engines     4-lane SQLite/Turso matrix (single-node vs clustered)
-#           admission   sqld write-admission sweep (write_permits 1/2/4/8)
+#   suite = engines     HISTORICAL, v0.6.3-pinned. 4-lane SQLite/Turso matrix
+#           admission   HISTORICAL, v0.6.3-pinned. sqld write_permits sweep
 #           proxy       DB-proxy cost/benefit matrix (hop vs pooling)
-#           bridge      in-process ephpm_db_* vs MySQL wire, per engine
+#           bridge      in-process ephpm_db_* vs MySQL wire (Turso)
 #           wp-bridge   WordPress: db-wordpress drop-in vs mysqli wire
 #           all         all five, in that order
+#
+# `engines` and `admission` exercise the rusqlite engine, the sqld sidecar
+# and the write_permits knob -- all REMOVED in ePHPm v0.7.0. They ignore
+# --image/EPHPM_IMAGE and stay hard-pinned to v0.6.3 so that bumping the
+# default below cannot turn them into dead or mislabelled lanes. Their
+# recorded numbers are the historical parity evidence behind the engine
+# switch; replacing them for v0.7.0 means a new Turso-single vs
+# Turso-CDC-clustered matrix, not edits to those lanes. See DB-BENCH.md.
 #
 # Unlike the k6/Kubernetes suites in k8s/, these run on ONE host under
 # podman. That is deliberate: the effects being measured (a wire-protocol
@@ -33,7 +41,7 @@ SUITE="${1:-}"
 [ -n "$SUITE" ] || { sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 2; }
 shift
 
-IMAGE="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
+IMAGE="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.7.0-php8.5}"
 DUR="${DUR:-15s}"
 REPS="${REPS:-2}"
 while [ $# -gt 0 ]; do
@@ -47,10 +55,10 @@ done
 
 export EPHPM_IMAGE="$IMAGE" DUR REPS
 
-run_suite() {  # name script resultsdir
+run_suite() {  # name script resultsdir [image-label]
   echo ""
   echo "========================================================================"
-  echo "  $1  ->  image=$IMAGE dur=$DUR reps=$REPS"
+  echo "  $1  ->  image=${4:-$IMAGE} dur=$DUR reps=$REPS"
   echo "========================================================================"
   bash "${DB}/$2" || { echo "!! suite $1 failed"; return 1; }
   echo ""
@@ -58,15 +66,19 @@ run_suite() {  # name script resultsdir
   bash "${DB}/parse.sh" "$3"
 }
 
+# The two historical suites keep their own v0.6.3 pin; label them as such
+# rather than printing this run's $IMAGE over the top of it.
+HIST="v0.6.3 (HARD-PINNED, historical -- ignores --image)"
+
 case "$SUITE" in
-  engines)   run_suite engines   bench-engines.sh   results-engines ;;
-  admission) run_suite admission bench-admission.sh results-admission ;;
+  engines)   run_suite engines   bench-engines.sh   results-engines   "$HIST" ;;
+  admission) run_suite admission bench-admission.sh results-admission "$HIST" ;;
   proxy)     run_suite proxy     bench-proxy.sh     results-proxy ;;
   bridge)    run_suite bridge    bench-bridge.sh    results-bridge ;;
   wp-bridge) run_suite wp-bridge bench-wordpress-bridge.sh results-wp-bridge ;;
   all)
-    run_suite engines   bench-engines.sh   results-engines
-    run_suite admission bench-admission.sh results-admission
+    run_suite engines   bench-engines.sh   results-engines   "$HIST"
+    run_suite admission bench-admission.sh results-admission "$HIST"
     run_suite proxy     bench-proxy.sh     results-proxy
     run_suite bridge    bench-bridge.sh    results-bridge
     run_suite wp-bridge bench-wordpress-bridge.sh results-wp-bridge

@@ -38,7 +38,7 @@
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
-IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
+IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.7.0-php8.5}"
 OHA=ghcr.io/hatoo/oha:latest
 CURL=docker.io/curlimages/curl:latest
 NET=dbbench-net
