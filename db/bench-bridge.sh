@@ -103,6 +103,18 @@ run_lane() {  # lane cfg img
   LANE="$1"; local cfg="$2" img="$3"
   echo ""; echo "############ LANE $LANE ($cfg, single-node, --cpus $CPUS) ############"
   echo "   image: $img"
+  # Purge THIS lane's files before measuring. $OUT persists across runs, and a
+  # lane that is not run this time (lane A is opt-in) leaves its previous
+  # session's files sitting next to this session's -- parse.sh then prints one
+  # table mixing two runs on two images with nothing to distinguish them. That
+  # happened on 2026-08-19: an archived "v0.7.0" directory still carried
+  # v0.6.3 rusqlite rows. Stale results that look current are exactly the
+  # failure this suite's gates exist to prevent.
+  rm -f "$OUT/${LANE}-"*.txt
+  {
+    echo "lane=$LANE image=$img config=$cfg"
+    echo "recorded=$(date -u +%Y-%m-%dT%H:%M:%SZ) host=$(hostname) dur=$DUR reps=$REPS cpus=$CPUS"
+  } > "$OUT/RUN-INFO-${LANE}.txt"
   cleanup
   podman volume rm -f "dbv-$LANE" >/dev/null 2>&1 || true
   podman volume create "dbv-$LANE" >/dev/null

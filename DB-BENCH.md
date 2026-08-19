@@ -245,6 +245,100 @@ Whether that instability is the sidecar topology, the litewire frontend under
 concurrent writes, or this host is **not established by this run**. It is
 logged here as an open question, not as a v0.6.3 defect claim.
 
+**Both problems are now diagnosed — see the A2 subsection below. They are a
+harness artifact, not an ePHPm defect.**
+
+### Re-recorded: litewire proxy lanes on `v0.7.0-php8.5` (2026-08-19)
+
+Same host, same method, same session as the `bridge` v0.7.0 recording. Lanes
+D/E/H and F/G/I + `F24-pg-cliff` **skipped** again — no `dbbench-mysql` /
+`dbbench-pg` upstreams were running. Skipped is absence, not a measurement.
+Mean of 2 × 15 s reps, RPS. The v0.6.3 column is the 2026-08-18 recording
+(prior session — unlike the `bridge` table above, there is no same-session
+control here).
+
+| Lane | fixture | c | v0.6.3 | v0.7.0 | Δ |
+| --- | --- | ---: | ---: | ---: | ---: |
+| A — litewire in-process, no proxy | db | 1 | 401.9 | 362.0 | −9.9 % |
+| A — litewire in-process, no proxy | db | 16 | 629.0 | 447.9 | **−28.8 %** |
+| A — litewire in-process, no proxy | write | 1 | 747.0 | 657.9 | −11.9 % |
+| A — litewire in-process, no proxy | write | 16 | 1239.2 | 1042.3 | −15.9 % |
+| A2 — litewire sidecar, no proxy | db | 1 | 358.5 ⚠ | 314.4 ⚠ | not a measurement |
+| A2 — litewire sidecar, no proxy | db | 16 | 500.4 ⚠ | 385.8 ⚠ | not a measurement |
+| A2 — litewire sidecar, no proxy | write | 1 | 346.5 ⚠ | 370.5 ⚠ | not a measurement |
+| A2 — litewire sidecar, no proxy | write | 16 | 627.5 ⚠ | 579.7 ⚠ | not a measurement |
+| B2 — sidecar via proxy, pooled | db | 1 | 295.8 | 275.6 | −6.8 % |
+| B2 — sidecar via proxy, pooled | db | 16 | 680.7 | 630.7 | −7.3 % |
+| B2 — sidecar via proxy, pooled | write | 1 | 691.2 | 641.8 | −7.2 % |
+| B2 — sidecar via proxy, pooled | write | 16 | 1235.1 | 1224.4 | −0.9 % |
+| C2 — sidecar via proxy, no reuse | db | 1 | 230.7 | 219.0 | −5.1 % |
+| C2 — sidecar via proxy, no reuse | db | 16 | 334.1 ⚠ | 330.7 ⚠ | −1.0 % (both noisy) |
+| C2 — sidecar via proxy, no reuse | write | 1 | 359.0 | 363.3 | +1.2 % |
+| C2 — sidecar via proxy, no reuse | write | 16 | 484.2 | 466.6 | −3.6 % |
+
+The **shape** of the suite is unchanged across the release: the proxy is still
+a net loss at c=1 and pooling still buys it back at c=16 (v0.7.0: B2 630.7 vs
+C2 330.7 on `db` c=16, **+91 %**, against +104 % on v0.6.3).
+
+The **level** carries the same wire regression the `bridge` suite found, and
+localises it further. Lane A is the in-process litewire wire path — the same
+thing `bridge`'s wire cells measure — and it is down 9.9–28.8 %. Lanes B2/C2
+route through the proxy and move far less (−7.3 % to +1.2 %, mostly inside
+noise). Pooling amortises whatever got more expensive; a per-request connect
+pays it in full. See the `bridge` section for the litewire-0.2.0 hypothesis.
+
+⚠ **A2's HTTP 500s and instability: diagnosed, and it is the harness.**
+
+The A2 defect recurred on v0.7.0 — `A2 write c=16 rep 2` returned **581 ×
+HTTP 500** alongside 8145 × 200 (v0.6.3 rep 2: 1454 × 500). Same lane, same
+fixture, same concurrency, same rep, two releases, two sessions. That
+reproducibility made it worth chasing, so this run reproduced it under a
+body-capturing probe instead of leaving it as an open question. The error is:
+
+```
+SQLSTATE[HY000] [2002] Cannot assign requested address
+```
+
+That is `EADDRNOTAVAIL` — **client-side ephemeral TCP port exhaustion**, not a
+database error. Confirmed inside the A2 PHP container during sustained load:
+
+```
+/proc/sys/net/ipv4/ip_local_port_range = 32768 60999   (28 231 ports)
+/proc/net/sockstat                     = TCP: ... tw 5807
+```
+
+A2 is the one lane that opens a **fresh TCP connection to a remote host on
+every request** with no reuse anywhere in the path. At ~500–800 req/s each
+closed connection sits in `TIME_WAIT` for ~60 s, so steady-state demand is
+~30 000–48 000 ports against a 28 231-port budget. `connect()` then fails, PHP
+raises `PDOException`, and `write.php` returns its 500.
+
+This explains every previously-unexplained feature of the A2 rows:
+
+- **Why it is always rep 2.** `TIME_WAIT` accumulates across warmup + rep 1 +
+  rep 2. The budget is not exhausted until ~60 s of sustained load — which
+  lands in rep 2 every time.
+- **Why the c=1 write cell is bimodal** (v0.6.3 444.5 / 248.6, 56 % spread;
+  v0.7.0 449.3 / 291.8, 42 %). At ~450 req/s × 60 s `TIME_WAIT` ≈ 27 000
+  sockets, the lane runs *right at* the 28 231-port boundary: one rep clears
+  it, the next collapses.
+- **Why only A2.** Lane A is in-process (no TCP). B2 pools. C2 has no reuse but
+  runs at ~220–470 req/s through a localhost proxy hop, below the threshold.
+- **Why it is release-independent.** It reproduces identically on v0.6.3 and
+  v0.7.0 because it is a property of the topology, not of ePHPm.
+
+**Conclusion: A2 is not a valid lane as configured, and never was.** It is
+measuring the host's ephemeral-port recycling as much as ePHPm. Its four cells
+are struck from both releases' tables above rather than compared. This is *not*
+an ePHPm bug — but it *is* a real-world caveat worth stating plainly: **any PHP
+app that opens a fresh remote `pdo_mysql` connection per request, with no
+persistent connections and no proxy, will hit this ceiling at a few hundred
+requests per second.** That is precisely the cost the in-process bridge and the
+pooling proxy exist to remove, and A2 accidentally demonstrates it. Fixing the
+lane (rather than deleting it) needs connection reuse, a widened
+`ip_local_port_range`, or `tcp_tw_reuse` — all of which change what it measures,
+so the lane should be re-scoped or dropped rather than patched into silence.
+
 ## The Formerly-Broken Config (proxy STEP 0) — **fixed upstream**
 
 `db/configs/proxy-litewire-inprocess-BROKEN.toml` chains `[db.mysql]` (the
@@ -392,6 +486,120 @@ Turso against ~200 µs over the wire. Those in-process microbench ratios do
 Turso, not 60×, because a full request is mostly PHP and HTTP, not SQL.
 
 **`wp-bridge` has still not been recorded** with this harness.
+
+### Recorded: `bridge` on `ephpm/ephpm:v0.7.0-php8.5` (2026-08-19) — **wire-path regression**
+
+`v0.7.0` published 2026-08-19, tag commit `c84e3c6`. Images verified pullable
+before measuring: `v0.7.0-php8.3`, `-php8.4`, `-php8.5`, `v0.7.0`, `latest` —
+all five present as manifest lists. Measured on
+`docker.io/ephpm/ephpm:v0.7.0-php8.5`,
+digest `sha256:c40689f2a8c019922fc1ed8a601a794d7ea5ccae117de7120738536730b49db8`
+(`org.opencontainers.image.version = v0.7.0+php8.5.7`, `revision = c84e3c6…`).
+
+**Both arms of this table were recorded in one session, back to back, on an
+otherwise idle box.** The v0.6.3 arm is a *fresh control re-run*
+(`v0.6.3-php8.5`, digest `sha256:2f93bfbb…`), not the 2026-08-18 recording
+above — a −20 % cross-session delta is exactly the kind of claim that host
+drift can manufacture, so the control removes drift as an explanation rather
+than arguing about it. The control reproduced the 2026-08-18 baseline on every
+cell (e.g. `wire-point c=1` 416.4 vs 403.6; `bridge-point c=16` 1662.1 vs
+1585.8), which is also a small piece of evidence that this harness is stable
+across sessions.
+
+Method identical to the recording above: `--cpus 1`, `oha`, 8 s warmup plus
+2 × 15 s timed reps, mean RPS. **All 24 v0.7.0 cells and all 24 control cells
+were 100 % HTTP 200** (`db/parse.sh` flagged nothing). Load average on the
+podman machine (32 vCPU), sampled every 30 s: v0.7.0 run median 1.37 / p90 2.57
+/ max 7.57; control+proxy run median 1.25 / p90 2.73 / max 5.89 — matched
+profiles, and all of it generated by the benchmark itself (`oha` is not
+CPU-capped, so the c=16 cells drive loadavg to ~5–7 transiently). No other
+workload ran: `ephpm` and `oha` were the only processes above 1 % CPU.
+
+> The 2026-08-18 recording's "machine load average 0.00–0.96 throughout" does
+> not survive denser sampling. At 30 s intervals the same harness reaches 5–7
+> during c=16 cells. That earlier figure was sampled too sparsely to see the
+> c=16 windows; it is corrected here rather than left standing.
+
+| Cell | v0.6.3 (control) | v0.7.0 | Δ | rep spread (v0.6.3 / v0.7.0) |
+| --- | ---: | ---: | ---: | --- |
+| wire-point c=1 | 416.4 | 318.8 | **−23.4 %** | 1.7 % / 2.0 % |
+| wire-point c=16 | 640.1 | 440.3 | **−31.2 %** | 0.2 % / 3.7 % |
+| wire-write c=1 | 755.8 | 638.6 | −15.5 % | 0.1 % / 1.2 % |
+| wire-write c=16 | 1235.3 | 1004.8 | −18.7 % | 2.1 % / 4.7 % |
+| wire-wide c=1 | 671.8 | 575.2 | −14.4 % | 1.5 % / 10.0 % |
+| wire-wide c=16 | 1108.5 | 878.3 | **−20.8 %** | 1.6 % / 5.3 % |
+| bridge-point c=1 | 1052.9 | 1020.4 | −3.1 % | 2.8 % / 2.2 % |
+| bridge-point c=16 | 1662.1 | 1647.8 | −0.9 % | 0.2 % / 0.4 % |
+| bridge-write c=1 | 1046.9 | 1034.0 | −1.2 % | 2.7 % / 3.3 % |
+| bridge-write c=16 | 1620.3 | 1541.3 | −4.9 % | 4.3 % / 9.3 % |
+| bridge-wide c=1 | 989.9 | 988.5 | −0.1 % | 2.8 % / 0.2 % |
+| bridge-wide c=16 | 1629.3 | 1664.6 | +2.2 % | 3.0 % / 0.3 % |
+
+**The result is a clean split.** Every one of the six **bridge** cells is
+within ±5 % — flat, at or below this harness's own rep-to-rep noise. Every one
+of the six **wire** cells is down, by 14–31 %. Three wire cells clear this
+file's "treat <20 % as unresolved" bar on their own (`wire-point` at both
+concurrencies, `wire-wide c=16`); the other three sit at 14–19 %, under that
+bar individually. But the bar exists to stop a single noisy cell being read as
+a result, and this is not one cell: it is **6 of 6 wire cells moving the same
+direction, in a run whose intra-cell spreads are 0.1–10 %, against a
+same-session control that itself reproduces a prior-session recording.**
+Collectively the wire regression is resolved. Individually, `wire-write c=1`,
+`wire-write c=16` and `wire-wide c=1` are not.
+
+**Where the cost is.** The wire cells and their bridge twins run in the *same
+process* against the *same* backend instance. The only thing a wire cell does
+that its bridge twin does not is open a `pdo_mysql` connection to litewire's
+MySQL frontend and speak the protocol. The bridge cells did not move; the wire
+cells did. So the regression is in the **per-request connect + MySQL frontend
+path**, not in the Turso engine, not in PHP, and not in ePHPm's HTTP layer —
+any of which would have moved both halves together.
+
+The `proxy` suite recorded the same day agrees independently: its `A-lite-inproc`
+lane (the same in-process wire path, different suite) is down 9.9–28.8 %, while
+its pooled proxy lane `B2` — which reuses backend connections and so pays the
+frontend handshake once per pooled connection rather than once per request — is
+down only 0.9–7.3 %.
+
+**Hypothesis, not a finding.** Between the two pins, litewire moved
+`e34c63928ed9` → `10345a869d27` (0.2.0) and turso moved `=0.7.0` → `=0.7.2`.
+litewire's MySQL frontend gained, over that range, a `ConnectionAuthenticator`
+path with a random per-connection scramble, an `opensrv-mysql` TLS feature
+fence, a server-side tenant-session SQL screen, and the litewire#28–#31
+wire-fidelity fixes. Per-connection handshake work is the shape that would
+produce exactly this signature — a cost paid once per connection, invisible to
+the bridge, amortised away by pooling. **This has not been bisected and is not
+established by this run.** The decisive next step is to bisect the litewire pin
+against a fixed ePHPm build.
+
+**This is a shipped regression.** v0.7.0 is published. Any deployment using
+stock `pdo_mysql` against the embedded engine — which is the documented default
+integration — gets 14–31 % less throughput than v0.6.3 on these fixtures.
+Applications on the `ephpm_db_*` bridge are unaffected.
+
+**What the bridge is worth**, per release (same lane, wire vs its bridge twin):
+
+| | v0.6.3 (control) | v0.7.0 |
+| --- | ---: | ---: |
+| point-select c=1 | 2.53× | 3.20× |
+| point-select c=16 | 2.60× | 3.74× |
+| insert c=1 | 1.39× | 1.62× |
+| insert c=16 | 1.31× | 1.53× |
+| wide-select c=1 | 1.47× | 1.72× |
+| wide-select c=16 | 1.47× | 1.90× |
+
+> **Do not quote the v0.7.0 column as an improvement to the bridge.** The
+> bridge did not get faster — every bridge cell is flat within noise. The
+> multiplier grew because its *denominator* shrank. "The bridge is now worth
+> 3.7×" and "the wire path lost 31 %" are the same measurement, and only the
+> second one is news.
+
+The ~60× in-process microbench ratio still does **not** survive to the HTTP
+level, and the v0.7.0 numbers reinforce that: end to end the bridge is worth
+1.5–3.7×, not 60×, because a full request is mostly PHP and HTTP, not SQL. The
+2.3–2.8× recorded on 2026-08-18 and the 2.5–2.6× measured on the control here
+are the honest figure for v0.6.3; 3.2–3.7× is the v0.7.0 figure and it is
+inflated by a regression rather than earned.
 
 ## Caveats
 
