@@ -8,7 +8,7 @@ opposite answers. Pick the section that matches your load:
 - **[Production hosting](#b-production-multi-tenant-hosting-high-sustained-traffic)** —
   tenants under steady real traffic. **CPU-bound. Scale out.**
 
-All figures come from the scaling benchmark (`report/REPORT.md`) plus a direct
+All figures come from the scaling benchmark (`scale/reports/REPORT.md`) plus a direct
 disk measurement of 250 real seeded WordPress databases (below).
 
 > **Re-verified 2026-08-15.** The original benchmark harness handicapped the

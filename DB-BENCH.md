@@ -1,10 +1,12 @@
 # ePHPm Database Path Benchmarks
 
 This suite measures the part of ePHPm that the Kubernetes suites cannot see: the
-path between PHP and its database. It covers the embedded SQLite engines
-(rusqlite and Turso), the clustered sqld replication path, and the in-process
-connection-pooling proxy (`[db.mysql]` / `[db.postgres]`) in front of four
-different upstreams.
+path between PHP and its database. It covers the embedded Turso engine
+single-node and CDC-clustered, whole-database and per-vhost (the `cluster`
+suite), and the in-process connection-pooling proxy (`[db.mysql]` /
+`[db.postgres]`) in front of four different upstreams. It also retains, as the
+historical record, the suites that measured the rusqlite engine and the sqld
+replication path — both removed upstream in v0.7.0.
 
 > This is not "ePHPm's database path is fast." It is "ePHPm's database path has
 > a connect cost that dominates short requests, and its proxy exists to amortise
@@ -30,9 +32,19 @@ different upstreams.
 > v0.6.3 image** — the parity evidence behind the v0.7.0 engine switch — the
 > same way ePHPm's own
 > [results page](https://ephpm.dev/benchmarking/results/) marks its pre-v0.7.0
-> engine and admission sections historical. A future v0.7.0 pin bump replaces
-> them with a Turso-single vs Turso-CDC-clustered matrix rather than editing
-> these lanes.
+> engine and admission sections historical.
+>
+> **The promised replacement now exists.** That Turso-single vs
+> Turso-CDC-clustered matrix is the [`cluster` suite](#the-cluster-suite-turso-single-vs-turso-cdc-clustered),
+> added alongside these lanes rather than by editing them, and it extends the
+> promise in one direction the original note did not anticipate: it also covers
+> **per-vhost** clustered replication, which did not exist when that note was
+> written. The historical lanes below are unchanged.
+>
+> Because the two generations need different images, **the default image is now
+> per suite** (see the box below). Bumping the historical suites would not
+> modernise them; `engine = "sqlite"` is a hard startup error on v0.7.0+, so it
+> would only replace a real measurement with a failed launch.
 
 ## Why This Runs On Podman, Not Kubernetes
 
@@ -49,33 +61,50 @@ cell. They answer *"did this change cost anything, and where"*. They do not
 answer *"what throughput will production see"* — the Kubernetes suites are still
 the place for that, and the two tiers must never be put in the same table.
 
-> **Which image these numbers need.** The proxy results below require a build
-> with the v0.6.1 pool fixes (ePHPm main `bdc9861` or later). The harness now
-> defaults to `ephpm/ephpm:v0.6.3-php8.5`, which contains those fixes, the
-> `write_permits` admission knob, and the `ephpm_db_*` in-process bridge — so
-> every suite in this file, including `bridge`, runs on the default image. On
-> anything older than v0.6.1 the pooled lanes reproduce the two defects rather
-> than the numbers, and on anything older than v0.6.3 the `bridge` suite fails
-> its function-registration gate.
+> **Which image these numbers need.** There are two image lines here and the
+> harness picks per suite:
+>
+> | Suites | Default image | Why that one |
+> | --- | --- | --- |
+> | `engines`, `admission`, `proxy`, `bridge`, `wp-bridge` | `ephpm/ephpm:v0.6.3-php8.5` | The newest image that still has the rusqlite engine, the sqld sidecar and `write_permits`. It also has the v0.6.1 pool fixes and the `ephpm_db_*` bridge, so all five run on it. |
+> | `cluster` | `ephpm/ephpm:v0.8.5-php8.5` | The newest **published** image. |
+>
+> `--image` (or `EPHPM_IMAGE`) overrides whichever default applies. Below
+> v0.6.1 the pooled proxy lanes reproduce two defects rather than the numbers;
+> below v0.6.3 `bridge` fails its function-registration gate; at v0.7.0 and
+> above the rusqlite and sqld lanes fail at startup by design.
+>
+> v0.8.6 is tagged upstream but its images are not on Docker Hub at the time of
+> writing, which is why the `cluster` default is v0.8.5 — and why two of that
+> suite's five lanes cannot run on a published image yet. See the `cluster`
+> section for exactly which, and for the environment variable that points them
+> at a newer build.
 
 ## Suites
 
 | Suite | Question | Runs on |
 | --- | --- | --- |
-| `engines` | rusqlite vs Turso, single-node vs clustered sqld | Published image |
-| `admission` | Does bounded write admission fix the clustered write collapse? | v0.6.1+ (knob merged in ephpm#222) |
-| `proxy` | What does the DB proxy cost (a hop) and buy (pooling)? | v0.6.1+ (pool fixes in ephpm#221) |
-| `bridge` | What does skipping the wire entirely buy? `ephpm_db_*` vs pdo_mysql, per engine | v0.6.3+ (bridge shipped in ephpm#257/#258) |
-| `wp-bridge` | Does the bridge move a real app? WordPress with the db-wordpress drop-in vs mysqli | v0.6.3+ |
+| `engines` | rusqlite vs Turso, single-node vs clustered sqld | v0.6.0–v0.6.3 only (**historical**) |
+| `admission` | Does bounded write admission fix the clustered write collapse? | v0.6.1–v0.6.3 only (**historical**; knob merged in ephpm#222, removed in v0.7.0) |
+| `proxy` | What does the DB proxy cost (a hop) and buy (pooling)? | v0.6.1–v0.6.3 (pool fixes in ephpm#221; two lanes use the removed rusqlite engine) |
+| `bridge` | What does skipping the wire entirely buy? `ephpm_db_*` vs pdo_mysql, per engine | v0.6.3 (bridge shipped in ephpm#257/#258; lane A is rusqlite) |
+| `wp-bridge` | Does the bridge move a real app? WordPress with the db-wordpress drop-in vs mysqli | v0.6.3 (lane `wp-sqlite` is rusqlite) |
+| `cluster` | What does Turso CDC replication cost — whole-database, and per vhost? | v0.8.5+ for three of five lanes; **v0.8.6+** for the two per-site clustered lanes |
 
 ```bash
-./scripts/run-db-bench.sh engines
-./scripts/run-db-bench.sh admission        # needs v0.6.1+ (default image is fine)
-./scripts/run-db-bench.sh proxy
-./scripts/run-db-bench.sh bridge           # needs v0.6.3+ (ephpm_db_* functions)
-./scripts/run-db-bench.sh wp-bridge        # needs v0.6.3+ and network on first run
-./scripts/run-db-bench.sh all --image docker.io/ephpm/ephpm:v0.6.3-php8.5
+./scripts/run-db-bench.sh engines           # historical: pins v0.6.3 automatically
+./scripts/run-db-bench.sh admission         # historical: pins v0.6.3 automatically
+./scripts/run-db-bench.sh proxy             # historical: pins v0.6.3 automatically
+./scripts/run-db-bench.sh bridge            # historical: pins v0.6.3 automatically
+./scripts/run-db-bench.sh wp-bridge         # historical: + network on first run
+./scripts/run-db-bench.sh cluster           # current: pins the newest published image
+./scripts/run-db-bench.sh all               # each suite gets its own default image
 ```
+
+There is deliberately **no single `--image` that runs everything**. The first
+five suites and the sixth measure two different generations of the same
+subsystem; a flag that forced them onto one image would necessarily break one
+group or the other.
 
 ## Fixtures
 
@@ -139,8 +168,10 @@ broken. Gate 5 is the only reason the second reading is the one in this repo.
 Measured on one developer machine: Windows 11 host, podman machine with 32
 vCPU / 64 GiB, ePHPm containers pinned to `--cpus 1`, upstream `mysql:8` and
 `postgres:16` containers at `--cpus 4` so the upstream is never the bottleneck.
-`oha`, warmup plus two timed reps per cell (15 s for `admission` and `proxy`,
-20 s for `engines`), every reported cell verified 100% HTTP 200. These exist so
+`oha`, warmup plus two timed reps per cell (15 s for `admission` and `proxy`;
+the `engines` numbers were taken with `DUR=20s`, which is **not** the harness
+default of 15 s — set it explicitly to reproduce them), every reported cell
+verified 100% HTTP 200. These exist so
 you can sanity-check your own run; they are not claims about production
 throughput, and they are not comparable to any k6 number in this repo.
 
@@ -258,6 +289,183 @@ rendered 10–16% faster with the drop-in. Treat those as the hypothesis this
 suite exists to check on a published image, not as results. Reference numbers
 will be recorded on `ephpm/ephpm:v0.6.3-php8.5` and added here.
 
+## The `cluster` Suite: Turso Single vs Turso CDC-Clustered
+
+This is the replacement promised in the historical banner at the top of this
+file, and it covers one axis that promise predates. As of v0.7.0 there is one
+embedded engine, so "which engine" is no longer a question. The questions that
+replaced it are all about **replication**:
+
+- What does clustering cost when nothing else changes?
+- What does it cost a *tenant*, in the multi-tenant deployment shape that is
+  the v0.7.0+ default?
+- And in per-vhost clustered mode, where ownership of a site is decided by
+  rendezvous hashing and any node will serve any tenant — what does it cost to
+  be asked for a site you do **not** own?
+
+That last one is the headline. In per-site clustered mode
+(`[db.sqlite.replication] per_site = true`, ephpm#416, experimental) each vhost
+gets its own database that replicates across the cluster, and a node that is
+not a site's HRW owner forwards every `ephpm_db_*` statement to the owner over
+`sql/<site>`. Reads and writes both work on every node. The forward hop is the
+price, and until now nobody had measured it.
+
+### Lanes
+
+| Lane | Shape | Measured on | Answers |
+| --- | --- | --- | --- |
+| `S-turso-single` | single-site, single node | the node | Anchor. Turso with no cluster at all, and the tie-back to the historical `bridge` suite's B-turso lane. |
+| `W-cluster-primary` | single-site, whole-DB clustered, 2 nodes | the **primary** | What CDC capture and shipping cost on the write path. `S → W` is "what does clustering cost". |
+| `P1-persite-single` | multi-tenant, single node, 1 DB per vhost | the node | The v0.7.0+ multi-tenant default, and the reference point for the two clustered per-site lanes. |
+| `P2-persite-owner` | multi-tenant **clustered**, 3 nodes | the site's **owner** | What per-site clustering costs a tenant on the node that owns it. `P1 → P2` is "what does clustering cost a tenant". |
+| `P3-persite-remote` | the same cluster, the same site | a **non-owner** | The `sql/<site>` forward hop. `P2 → P3` is the number people ask about first. |
+
+Cells per lane are `bridge-point` (ten sequential point `SELECT`s through
+`ephpm_db_query()`) and `bridge-write` (one `INSERT` through
+`ephpm_db_execute()`), at c=1 and c=16, warmup plus two timed reps — identical
+to every other suite in this file. The three multi-tenant lanes add a
+`wire-point` cell over stock `pdo_mysql`.
+
+That `wire-point` cell is not decoration and not a duplicate. In per-site
+clustered mode the bridge forwards to the owner but **stock `pdo_mysql` does
+not** — it resolves the local database on whichever node served the request (a
+documented gap in ephpm#416). So on a non-owner, `bridge-point` pays the hop
+and `wire-point` does not. Measuring both is what makes "the difference is the
+hop" falsifiable rather than asserted: if `P3`'s `wire-point` were *also*
+slower than `P2`'s, whatever slowed it down would not be forwarding.
+
+### What This Does Not Answer
+
+- **Not production throughput.** Same local-tier caveat as everything else in
+  this file: one host, `--cpus 1` per node, three ePHPm containers scheduled
+  against each other across a podman bridge. It answers "what did this cost",
+  not "what will this serve".
+- **Not failover.** Every lane measures a settled cluster with stable
+  membership. Ownership churn — a node joining or dying and re-homing a site
+  mid-flight — is where per-site clustered mode's interesting failure modes
+  live, and this suite deliberately does not go there. It is a throughput
+  matrix, not a chaos test.
+- **Not "is clustered mode ready".** Turso is Beta upstream and per-site
+  clustered mode is marked experimental by ePHPm itself. A cost measurement is
+  not a maturity claim.
+- **S vs P1 is not a measurement of anything.** They are different deployment
+  shapes. Read `S→W`, `P1→P2`, and `P2→P3`; reading across the two groups
+  compares single-site to multi-tenant and answers a question nobody asked.
+
+### Gates
+
+The five general gates at the top of this file all apply. Three are specific to
+this suite, and the first of them earned its place immediately:
+
+1. **The mode gate, and why it is the most important gate in this file.** Four
+   different database modes are selected by a *conjunction* of keys spread
+   across `[server]`, `[db.sqlite]`, `[db.sqlite.replication]` and `[cluster]`,
+   and `ephpm-config` does not reject unknown fields. An image that predates a
+   knob parses it, ignores it, and starts happily in a **different mode** — one
+   that then benchmarks perfectly well under the wrong label.
+
+   This is not hypothetical. The first run of this suite pointed the per-site
+   clustered lanes at the newest published image and got a healthy, fast,
+   fully-2xx three-node cluster. It was running whole-database clustered mode,
+   because `per_site` does not exist in that image. Every gate except this one
+   passed. Only the startup log said otherwise, and every lane now asserts a
+   specific startup line before a single request is measured.
+
+2. **The negative control.** The fixture directory is mounted at both the
+   default document root and the vhost's, so the *same PHP files* are reachable
+   with and without the vhost `Host` header. Without it the request must fail
+   with "no per-site database context". If that ever passed, the tenant would
+   be selected by the mount rather than by the request and every per-site
+   number here would be meaningless.
+
+3. **Exactly one owner, agreed by two independent observations.** The suite
+   measures **one** vhost, which is what makes ownership externally decidable:
+   with a single site in the cluster, "this node has attached CDC subscribers"
+   (`ephpm_cdc_subscribers` on `/metrics`) and "this node owns the site"
+   (`elected as SQLite primary` in its log) must name the same node. Zero
+   owners means no replica ever attached; two means membership had not settled.
+   Either way P2 and P3 cannot be labelled, so they are refused rather than
+   reported. Note that `/_ephpm/primary` cannot be used here — in per-site mode
+   it deliberately answers 200 on *every* healthy node, because every node
+   accepts writes for every site.
+
+Replication convergence (general gate 4) has a wrinkle worth stating, because
+getting it backwards makes the gate vacuous. The proof writes through the
+**bridge** and counts over stock **`pdo_mysql`**. It has to be that way round: a
+bridge-side count on a non-owner forwards to the owner, so it would read the
+owner's database from every node and agree with itself even if replication were
+completely dead. `pdo_mysql` is not forwarded, so it is the only one of the two
+that can actually observe a replica.
+
+### A Setup Step With Teeth
+
+On a non-owner the bridge hands back a remote proxy and **never opens the
+site's local database file**. The per-site registry's open-hook therefore never
+fires, and that node never starts a replica driver for the site — it sits there
+replicating nothing. A cluster in that state passes a naive smoke test and
+holds the tenant's data on exactly one node.
+
+What opens it locally is a stock `pdo_mysql` request. So the suite hits
+`count.php` on every node before gating on convergence, and the ordering is
+load-bearing: seed through the bridge, open locally on every node, *then* gate.
+This is worth knowing outside the lab — a per-site clustered deployment whose
+apps use only the `ephpm_db_*` drop-ins may never open a tenant's database on
+the nodes that do not own it.
+
+### The Divergence Probe
+
+After the measurements — never before — each per-site clustered run writes one
+row over stock `pdo_mysql` on the non-owner, then counts on both nodes and
+prints the difference. The writer's local count comes out one higher than the
+owner's: that row exists on exactly one node and is discarded when the replica
+next re-bootstraps.
+
+It runs last on purpose. A probe that mutates server state must not precede the
+lane it decorates, and this lab has been burned by exactly that shape before —
+the session-leak probe that poisoned each pooled proxy lane before measuring
+it, producing 876 requests per second of pure HTTP 500 (see the Gates section
+above). This one injects a row that only one node will ever see, which is
+precisely the kind of state a measured lane should not start with.
+
+### Running It
+
+```bash
+./scripts/run-db-bench.sh cluster           # all five lanes
+bash db/bench-cluster.sh s                  # or one lane: s | w | p1 | p23
+```
+
+Lanes S, W and P1 run on the default published image. **Lanes P2 and P3 do
+not**: per-site clustered replication first appears in the ePHPm v0.8.6 tag,
+whose Docker images are not published at the time of writing. Point them at a
+newer build with
+
+```bash
+EPHPM_PERSITE_CLUSTER_IMAGE=<a v0.8.6+ image> ./scripts/run-db-bench.sh cluster
+```
+
+Without it those two lanes fail their mode gate with a message saying exactly
+this, which is the correct outcome — the alternative is a confidently
+mislabelled result.
+
+The suite uses its own podman network (`dbcluster-net`) with an **explicit**
+subnet, rather than the `dbbench-net` the other suites share. The clustered
+configs must name exact IPs — clustered replication fails closed on an
+unspecified bind address, because it would have nothing dialable to advertise —
+and the older configs assume whatever subnet podman happened to hand
+`dbbench-net`. Declaring it makes that assumption a fact. The suite also removes
+its own containers, volumes and network on exit, which the older suites do not
+(see `db/cleanup.sh`).
+
+### Reference Numbers
+
+**None yet — the suite is authored and gate-validated, not recorded.** Every
+lane has been run end to end against `ephpm/ephpm:v0.8.5-php8.5` on podman with
+short durations, purely to prove the lanes produce clean, fully-2xx numbers and
+that the gates fire correctly; those runs are not measurements and are not
+reported here. Lanes P2 and P3 have never run in their intended mode at all,
+for the image reason above. Reference numbers will be recorded once a v0.8.6+
+image is published, and only then.
+
 ## Caveats
 
 - **`--cpus 1` is the point, not a limitation.** These fixtures are dominated by
@@ -285,8 +493,11 @@ will be recorded on `ephpm/ephpm:v0.6.3-php8.5` and added here.
   v0.5.0 autotuning note in `RUNTIMES-BENCH.md`, a version bump changes the
   effective configuration, so numbers recorded across a bump are not directly
   comparable. Re-record rather than assume.
-- **The `admission` suite needs v0.6.1 or later** — satisfied by the default
-  image since the v0.6.3 pin bump. The `write_permits` knob it sweeps merged in
+- **The `admission` suite needs v0.6.1 or later _and earlier than v0.7.0_** —
+  satisfied by its pinned v0.6.3 default and by nothing newer. The knob it
+  sweeps was removed in v0.7.0 along with sqld, so the window is closed at both
+  ends; on a v0.7.0+ image the startup-log gate correctly refuses every lane.
+  The `write_permits` knob it sweeps merged in
   [ephpm#222](https://github.com/ephpm/ephpm/pull/222) and is not in v0.6.0 or
   earlier; on an older image the `baseline` row is all you get — which on its
   own demonstrates the collapse that motivated the knob. The suite gates on the
@@ -304,13 +515,18 @@ db/bench-admission.sh        sqld write-admission sweep (default image)
 db/bench-proxy.sh            Proxy cost/benefit matrix
 db/bench-bridge.sh           In-process ephpm_db_* vs MySQL wire, per engine
 db/bench-wordpress-bridge.sh WordPress: db-wordpress drop-in vs mysqli wire
+db/bench-cluster.sh          Turso single vs CDC-clustered, whole-DB and per-vhost
 db/parse.sh                  Shared results parser with response accounting
+db/cleanup.sh                Remove every podman resource the db suites create
 db/probe-clean-vs-dirty.sh   Mechanism probe: pooled-connection poisoning
 db/probe-reset.sh            Mechanism probe: COM_RESET_CONNECTION against a pooled backend
 db/probe-pg.sh               Mechanism probe: does pdo_pgsql pin the session?
 db/configs/*.toml            One file per lane; pairs differ in as few keys as possible
+db/configs/persite-*.toml    cluster suite: per-site single-node and clustered
+db/configs/whole-cluster-*.toml  cluster suite: whole-database CDC primary/replica
 db/fixtures/{sqlite,mysql,postgres}/*.php
 db/fixtures/bridge/*.php     ephpm_db_* twins of the sqlite fixtures + wide-select
+db/fixtures/cluster/*.php    cluster suite: bridge + wire twins, local count probe
 db/fixtures/wp/*.php         WordPress mu-plugin gates (X-Db-Driver)
 db/results-*/                Raw oha output (gitignored) — keep it locally
 ```

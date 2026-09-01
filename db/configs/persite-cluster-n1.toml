@@ -1,0 +1,85 @@
+# Lanes P2/P3, node 1 -- PER-SITE CLUSTERED Turso (EXPERIMENTAL,
+# ephpm#416). Each virtual host gets its own database file that ALSO
+# replicates across the cluster, instead of every tenant sharing one
+# clustered database.
+#
+# The mode is the conjunction of four things, and getting any one of them
+# wrong lands you in a DIFFERENT mode that looks identical from outside:
+#
+#   [server]  sites_dir            -> multi-tenant
+#   [db.sqlite] dir                -> one database file per vhost
+#   [cluster] enabled = true   +
+#   [db.sqlite.replication] role   -> clustered   (role = "auto" is the
+#                                     default, so omitting the role block
+#                                     entirely would ALSO be clustered)
+#   [db.sqlite.replication] per_site = true       -> per-site clustered
+#
+# With per_site = false (the default) a clustered multi-site config gets
+# NO per-site isolation at all: every tenant shares the one clustered
+# database, and ePHPm warns loudly at startup. The harness gates on the
+# startup log for exactly this reason -- the four-way mode selection is
+# not observable from a response body, and a lane in the wrong mode
+# benchmarks perfectly happily under the wrong label.
+#
+# Ownership of a site is by rendezvous hashing (HRW) over the ALIVE
+# nodes, so it is a pure function of (site key, membership) -- no
+# coordination, and a node's death re-homes only that node's sites. Every
+# node accepts reads and writes for every site: on a non-owner the
+# ephpm_db_* bridge forwards each statement to the owner over
+# sql/<site>. That is why /_ephpm/primary answers 200 on every healthy
+# node here and cannot be used to find a site's owner.
+#
+# ADDRESSES ARE STATIC (podman --ip on 10.89.7.0/24) because clustered
+# replication refuses to start when both [cluster] bind and
+# [cluster.channel] listen are unspecified (0.0.0.0) -- it would have no
+# dialable address to advertise. That is a deliberate fail-closed guard,
+# not a limitation to work around.
+#
+# Channel port is 7948, NOT 7947: the KV data plane already binds 7947 by
+# default and the two collide with "Address already in use". 7948 is also
+# what a peer DERIVES for this node when no claim has been published yet
+# (gossip port + 2), so naming it explicitly agrees with the default rule
+# rather than fighting it.
+#
+# NOTE: no `cdc_experimental` key. It was removed in v0.7.0 -- CDC is now
+# the only clustered SQLite replication path and the flag selects
+# nothing. It is still parsed, so setting it would not fail; it would
+# just warn and mislead a future reader.
+
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+sites_dir = "/var/www/sites"
+index_files = ["index.php", "index.html"]
+
+[server.limits]
+max_connections = 1024
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[server.metrics]
+enabled = true
+
+[php]
+mode = "fpm"
+
+[db.sqlite]
+dir = "/data/sites"
+engine = "turso"
+
+[db.sqlite.replication]
+role = "auto"
+per_site = true
+
+[db.analysis]
+query_stats = false
+
+[cluster]
+enabled = true
+bind = "10.89.7.11:7946"
+node_id = "node-1"
+cluster_id = "dbcluster"
+secret = "bench-only-not-a-real-secret-000000000000"
+
+[cluster.channel]
+listen = "10.89.7.11:7948"

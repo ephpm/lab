@@ -431,7 +431,7 @@ spec:
     spec:
       containers:
       - name: ephpm
-        image: ephpm/ephpm:v0.6.3-php8.4
+        image: ephpm/ephpm:v0.8.5-php8.4
         ports:
         - containerPort: 8080
         resources:

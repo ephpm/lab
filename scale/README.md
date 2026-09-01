@@ -78,9 +78,9 @@ scripts/provision.sh     symlink N vhosts to one shared docroot
 scripts/sample.sh        /proc sampler: RSS (steady/peak), CPU cores, fd count
 scripts/seed_wp_real.sh  drive the WordPress web installer once (wp-real only)
 scripts/run_sweep.sh     the orchestrator — build, template, seed, load, measure, per (cap,N) point
-report/report.go         turn results/*.json into a Markdown table + ASCII scaling curves
+reports/report.go         turn results/*.json into a Markdown table + ASCII scaling curves
 results/<workload>/      one merged JSON per (cap,N) point
-report/REPORT.md         the writeup: tables, curves, resource model, capacity takeaway
+reports/REPORT.md         the writeup: tables, curves, resource model, capacity takeaway
 ```
 
 ## Running it
@@ -104,7 +104,7 @@ export NS="10 25 50 100"
 bash scripts/run_sweep.sh
 
 # build the report from results:
-cd report && go run . -dir ../results/wp-lite > REPORT.md
+cd reports && go run . -dir ../results/wp-lite > REPORT.md
 ```
 
 `WIREPORT` (default 13306) moves the per-site MySQL wire listener off 3306 so
@@ -118,7 +118,7 @@ even when only the `ephpm_db_*` bridge is used.
   **shape** (RSS-vs-N, the LRU inflection at N > cap) as the result, not the
   absolute RPS.
 * **LTO / build profile:** the binary is the stock `cargo xtask release` profile
-  (see `report/REPORT.md` for the exact commit and profile) — **not** a
+  (see `reports/REPORT.md` for the exact commit and profile) — **not** a
   hand-tuned LTO build.
 * **wp-lite is not WordPress.** It is deliberately WP-*shaped*. Where the report
   gives a 1000-site number from wp-lite and a lower-N number from real WP, both

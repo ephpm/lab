@@ -11,18 +11,27 @@ from the ePHPm-lab report's next-tests list.
 
 | Runtime | Image | PHP |
 |---------|-------|-----|
-| ePHPm v0.6.3 | `ephpm/ephpm:v0.6.3-php8.4` | 8.4 ZTS, glibc |
+| ePHPm v0.8.5 | `ephpm/ephpm:v0.8.5-php8.4` | 8.4 ZTS, glibc |
 | nginx + php-fpm | `nginx:1.27-alpine` + `php:8.4-fpm` (Debian) | 8.4 NTS, glibc |
 | FrankenPHP | `dunglas/frankenphp:latest` | 8.5 ZTS, glibc (image default; see caveat) |
 | Swoole | `phpswoole/swoole:php8.4` | 8.4 NTS, glibc |
 | RoadRunner | `php:8.4-cli-alpine` + `ghcr.io/roadrunner-server/roadrunner:2024` | 8.4 NTS, musl (see caveat) |
-| ePHPm v0.6.3 worker mode | `ephpm/ephpm:v0.6.3-php8.4` (`[php] mode = "worker"`) | 8.4 ZTS, glibc |
+| ePHPm v0.8.5 worker mode | `ephpm/ephpm:v0.8.5-php8.4` (`[php] mode = "worker"`) | 8.4 ZTS, glibc |
 
-The manifests pin **v0.6.3**, which carries the whole v0.4.x line
-(v0.4.1: 101x db.php latency fix + SHA-NI; v0.4.2: HTTP `TCP_NODELAY`
--13% p99, worker dispatch fastpath, mimalloc/LTO), v0.5.0's
-**resource-aware autotuning**, and the v0.6.x database-path work
-(pool fixes, the `ephpm_db_*` bridge — see `DB-BENCH.md`).
+The manifests pin **v0.8.5**, the newest published image. It carries the
+whole v0.4.x line (v0.4.1: 101x db.php latency fix + SHA-NI; v0.4.2:
+HTTP `TCP_NODELAY` -13% p99, worker dispatch fastpath, mimalloc/LTO),
+v0.5.0's **resource-aware autotuning**, the v0.6.x database-path work
+(pool fixes, the `ephpm_db_*` bridge — see `DB-BENCH.md`), and the v0.7.0
+engine consolidation onto Turso.
+
+> **The pin moved; the recorded numbers did not.** Every table below was
+> measured on an older pin — the Class A reference rows at the bottom are
+> `v0.4.0`, and the rest of the file was recorded on v0.6.3. A version bump
+> changes the effective configuration (v0.5.0 autotuning is the documented
+> example, see the caveat below), so these tables are **due for a re-record**
+> and no row here should be read as a v0.8.5 measurement. Rows are labelled
+> with the version they were taken on rather than restated against the pin.
 For the v0.4.0-vs-v0.4.1 before/after,
 see [docs/ephpm-0.4.1-retest.md](docs/ephpm-0.4.1-retest.md). The
 `db.php` lane (10 PDO queries on ePHPm's in-process SQLite) remains
@@ -42,24 +51,33 @@ the reproduction path for the database-latency number.
 > expected to benefit most; tiny-script lanes (`hello`) should be
 > unchanged. Operator config still overrides any derived value.
 
-## Experimental: Turso engine db lane (deployed, undriven)
+## Turso engine db lane (deployed, undriven — and now redundant)
 
 `k8s/runtimes-bench.yaml` carries a `bench-ephpm-turso` Deployment +
-Service — identical to the ePHPm db.php lane but with the
-**experimental** `[db.sqlite] engine = "turso"` knob (the Rust SQLite
-rewrite). On the v0.6.3 pin the knob exists, so the lane ships
-`replicas: 1` — but **no k6 Job drives it**: applying the manifest
-deploys the pod and then nothing measures it. To measure it, confirm
-the pod log shows the experimental-engine startup warning, then run the
-db.php profile by hand against `http://bench-ephpm-turso:8080/db.php`
-and compare with the `bench-ephpm` lane's db.php result. Context:
-Phase 1 microbenchmarks at the litewire seam measured 28x point-SELECT
-and 4x concurrent-writer throughput vs the C engine; this lane measures
-what survives of that through the full mysqlnd → MySQL-wire → engine
-path on a resource-limited pod. Note this lane collapses on any future
-v0.7.0+ pin bump: Turso becomes the only engine there, so the knob (and
-the lane's reason to exist) disappears — see the "Relationship to ePHPm
-v0.7.0" section in the README.
+Service — identical to the ePHPm db.php lane but with an explicit
+`[db.sqlite] engine = "turso"`.
+
+**On the current v0.8.5 pin this lane no longer answers anything.** It was
+written when `turso` was an experimental alternative to the rusqlite C
+engine, and the comparison it existed to make was Turso-vs-rusqlite. v0.7.0
+removed rusqlite and made Turso the only engine and the default, so
+`engine = "turso"` is now a no-op restatement of the default and this
+Deployment is a duplicate of `bench-ephpm`. It still starts — `"turso"` is
+the one value the knob accepts — and there is still no k6 Job driving it.
+
+The lane is left in place rather than deleted because the *comparison* it
+was reaching for did not disappear, it moved: what is worth measuring now
+is not which engine, but what replication costs. That is the `cluster`
+suite in [DB-BENCH.md](DB-BENCH.md#the-cluster-suite-turso-single-vs-turso-cdc-clustered),
+on the local podman tier where a microsecond-wide effect is actually
+resolvable.
+
+For the record, the original context: Phase 1 microbenchmarks at the
+litewire seam measured 28x point-SELECT and 4x concurrent-writer
+throughput vs the C engine, and this lane was meant to measure what
+survived of that through the full mysqlnd → MySQL-wire → engine path on a
+resource-limited pod. That measurement was never taken, and on any
+shippable image it can no longer be.
 
 ## Class A vs Class B
 

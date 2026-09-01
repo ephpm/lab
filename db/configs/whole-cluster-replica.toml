@@ -1,0 +1,63 @@
+# Lane W, node 2 -- WHOLE-DATABASE CLUSTERED Turso replica.
+#
+# Dials the primary's cluster channel, announces its applied watermark in
+# the first Subscribe frame, and applies batches as they arrive. A cold
+# replica first pulls a logical snapshot. No sqld, no child process, no
+# gRPC.
+#
+# This node exists so lane W's numbers are a real cluster's numbers.
+# Without an attached replica the primary has nobody to ship to, and its
+# write path degenerates to "capture CDC that nobody reads" -- which
+# benchmarks very close to single-node and would be reported as
+# "clustering is free". The harness proves convergence on this node
+# before believing anything lane W produces.
+#
+# `primary_grpc_url` is a legacy NAME, not a legacy mechanism: on the CDC
+# path this field carries the primary's cluster CHANNEL address
+# (host:port, no scheme). There is no gRPC on this path. Omitting it with
+# role = "replica" is a hard startup error.
+#
+# Reads on this node are served from the local replica. Lane W does NOT
+# measure a write here: a replica's local write is not forwarded to the
+# primary (unlike per-site clustered mode, whose sql/<site> forwarding is
+# lanes P2/P3), so a write cell on this node would measure a write that
+# is discarded on the next re-bootstrap. That is a correctness note, not
+# a benchmark.
+
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+index_files = ["index.php", "index.html"]
+
+[server.limits]
+max_connections = 1024
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[server.metrics]
+enabled = true
+
+[php]
+mode = "fpm"
+
+[db.sqlite]
+path = "/data/bench.db"
+engine = "turso"
+
+[db.sqlite.replication]
+role = "replica"
+primary_grpc_url = "10.89.7.11:7948"
+
+[db.analysis]
+query_stats = false
+
+[cluster]
+enabled = true
+bind = "10.89.7.12:7946"
+join = ["10.89.7.11:7946"]
+node_id = "node-2"
+cluster_id = "dbcluster"
+secret = "bench-only-not-a-real-secret-000000000000"
+
+[cluster.channel]
+listen = "10.89.7.12:7948"

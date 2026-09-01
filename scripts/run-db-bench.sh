@@ -10,7 +10,18 @@
 #           proxy       DB-proxy cost/benefit matrix (hop vs pooling)
 #           bridge      in-process ephpm_db_* vs MySQL wire, per engine
 #           wp-bridge   WordPress: db-wordpress drop-in vs mysqli wire
-#           all         all five, in that order
+#           cluster     Turso single vs CDC-clustered, whole-DB and per-vhost
+#           all         all six, in that order
+#
+# THE DEFAULT IMAGE IS PER SUITE, not global. The first five suites
+# benchmark machinery that was REMOVED in ePHPm v0.7.0 -- the rusqlite
+# engine, the sqld sidecar, the write_permits knob -- so they stay pinned
+# to the last image that has it (v0.6.3) and are the historical record.
+# `cluster` is the v0.8.x replacement and tracks the newest published
+# image. Bumping the historical suites would not modernise them, it would
+# just make them fail at startup: `engine = "sqlite"` is a hard error on
+# v0.7.0+. An explicit --image (or EPHPM_IMAGE) still overrides whichever
+# default applies.
 #
 # Unlike the k6/Kubernetes suites in k8s/, these run on ONE host under
 # podman. That is deliberate: the effects being measured (a wire-protocol
@@ -33,7 +44,19 @@ SUITE="${1:-}"
 [ -n "$SUITE" ] || { sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 2; }
 shift
 
-IMAGE="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
+# Pinned to the last image that still has the pre-v0.7.0 machinery.
+HISTORICAL_IMAGE="docker.io/ephpm/ephpm:v0.6.3-php8.5"
+# Newest PUBLISHED image. v0.8.6 is tagged upstream but its images are not
+# on Docker Hub yet; bump this when they are.
+CURRENT_IMAGE="docker.io/ephpm/ephpm:v0.8.5-php8.5"
+
+case "$SUITE" in
+  cluster) DEFAULT_IMAGE="$CURRENT_IMAGE" ;;
+  all)     DEFAULT_IMAGE="" ;;   # each suite picks its own below
+  *)       DEFAULT_IMAGE="$HISTORICAL_IMAGE" ;;
+esac
+
+IMAGE="${EPHPM_IMAGE:-$DEFAULT_IMAGE}"
 DUR="${DUR:-15s}"
 REPS="${REPS:-2}"
 while [ $# -gt 0 ]; do
@@ -45,33 +68,38 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-export EPHPM_IMAGE="$IMAGE" DUR REPS
+export DUR REPS
 
-run_suite() {  # name script resultsdir
+run_suite() {  # name script resultsdir default-image
+  # An explicit --image / EPHPM_IMAGE wins; otherwise each suite gets the
+  # image line it was written against.
+  local img="${IMAGE:-$4}"
   echo ""
   echo "========================================================================"
-  echo "  $1  ->  image=$IMAGE dur=$DUR reps=$REPS"
+  echo "  $1  ->  image=$img dur=$DUR reps=$REPS"
   echo "========================================================================"
-  bash "${DB}/$2" || { echo "!! suite $1 failed"; return 1; }
+  EPHPM_IMAGE="$img" bash "${DB}/$2" || { echo "!! suite $1 failed"; return 1; }
   echo ""
   echo "--- $1 results ---"
   bash "${DB}/parse.sh" "$3"
 }
 
 case "$SUITE" in
-  engines)   run_suite engines   bench-engines.sh   results-engines ;;
-  admission) run_suite admission bench-admission.sh results-admission ;;
-  proxy)     run_suite proxy     bench-proxy.sh     results-proxy ;;
-  bridge)    run_suite bridge    bench-bridge.sh    results-bridge ;;
-  wp-bridge) run_suite wp-bridge bench-wordpress-bridge.sh results-wp-bridge ;;
+  engines)   run_suite engines   bench-engines.sh   results-engines   "$HISTORICAL_IMAGE" ;;
+  admission) run_suite admission bench-admission.sh results-admission "$HISTORICAL_IMAGE" ;;
+  proxy)     run_suite proxy     bench-proxy.sh     results-proxy     "$HISTORICAL_IMAGE" ;;
+  bridge)    run_suite bridge    bench-bridge.sh    results-bridge    "$HISTORICAL_IMAGE" ;;
+  wp-bridge) run_suite wp-bridge bench-wordpress-bridge.sh results-wp-bridge "$HISTORICAL_IMAGE" ;;
+  cluster)   run_suite cluster   bench-cluster.sh   results-cluster   "$CURRENT_IMAGE" ;;
   all)
-    run_suite engines   bench-engines.sh   results-engines
-    run_suite admission bench-admission.sh results-admission
-    run_suite proxy     bench-proxy.sh     results-proxy
-    run_suite bridge    bench-bridge.sh    results-bridge
-    run_suite wp-bridge bench-wordpress-bridge.sh results-wp-bridge
+    run_suite engines   bench-engines.sh   results-engines   "$HISTORICAL_IMAGE"
+    run_suite admission bench-admission.sh results-admission "$HISTORICAL_IMAGE"
+    run_suite proxy     bench-proxy.sh     results-proxy     "$HISTORICAL_IMAGE"
+    run_suite bridge    bench-bridge.sh    results-bridge    "$HISTORICAL_IMAGE"
+    run_suite wp-bridge bench-wordpress-bridge.sh results-wp-bridge "$HISTORICAL_IMAGE"
+    run_suite cluster   bench-cluster.sh   results-cluster   "$CURRENT_IMAGE"
     ;;
-  *) echo "unknown suite: $SUITE (engines|admission|proxy|bridge|wp-bridge|all)" >&2; exit 2 ;;
+  *) echo "unknown suite: $SUITE (engines|admission|proxy|bridge|wp-bridge|cluster|all)" >&2; exit 2 ;;
 esac
 
 echo ""

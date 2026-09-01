@@ -1,0 +1,49 @@
+# Lane P1 -- PER-SITE, SINGLE NODE. The multi-tenant production default
+# from v0.7.0 on, and the reference point the two clustered per-site lanes
+# are measured against: it is what "before you turned clustering on"
+# costs.
+#
+# [server] sites_dir turns on vhosting: each subdirectory of it is a
+# virtual host keyed by its own name. [db.sqlite] dir then gives each
+# vhost its OWN database file at <dir>/<site-key>.db. That file is the
+# tenant boundary -- Turso has no per-schema ACL, so one file per site is
+# the only thing that stops one tenant's SQL from naming another's data.
+#
+# `dir` is REQUIRED here and startup fails closed without it. `path` is
+# ignored in multi-site mode; it is left out rather than set to a value
+# that would quietly do nothing.
+#
+# Everything that could confound the A/B is pinned rather than inherited,
+# for the same reasons single-turso.toml gives:
+#
+#  * The rate limiter is effectively disabled. The image's baked
+#    tests/ephpm-test.toml sets per_ip_rate = 500, and a single-IP load
+#    test against that measures the limiter, not the server. Every cell
+#    is verified 100% 2xx anyway.
+#  * query_stats is OFF. TrackedBackend wraps the litewire backend to
+#    record per-digest stats and would tax every lane -- but unevenly,
+#    since the lanes differ in how many statements reach a backend.
+
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+sites_dir = "/var/www/sites"
+index_files = ["index.php", "index.html"]
+
+[server.limits]
+max_connections = 1024
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[server.metrics]
+enabled = true
+
+[php]
+mode = "fpm"
+
+[db.sqlite]
+dir = "/data/sites"
+engine = "turso"
+
+[db.analysis]
+query_stats = false

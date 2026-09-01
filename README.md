@@ -2,7 +2,16 @@
 
 Author: Benjamin Pace
 
-A reproducible Kubernetes lab for people deciding whether ePHPm belongs in their PHP deployment. It compares published ePHPm PHP 8.4 images (`v0.5.0` and the current worker retest on `v0.6.0`) with the official PHP 8.4 FPM image and nginx across small scripts, synthetic apps, Krayin CRM, Laravel, Redis/Predis, ePHPm native KV, worker mode, and clustered OPcache invalidation.
+A reproducible Kubernetes lab for people deciding whether ePHPm belongs in their PHP deployment. It compares published ePHPm PHP 8.4 images with the official PHP 8.4 FPM image and nginx across small scripts, synthetic apps, Krayin CRM, Laravel, Redis/Predis, ePHPm native KV, worker mode, and clustered OPcache invalidation.
+
+> **Manifests and recorded numbers are pinned separately, on purpose.** The
+> Kubernetes manifests now pin `ephpm/ephpm:v0.8.5-php8.4`, the newest
+> published image. Most tables below were recorded on **older** images —
+> `v0.4.0` through `v0.6.3` — and each row says which. A version bump changes
+> the effective configuration (v0.5.0 autotuning being the clearest example),
+> so numbers recorded across a bump are not directly comparable and the tables
+> are **due for a re-record on v0.8.5**. Every row is labelled rather than
+> quietly restated against the new pin.
 
 > This is not "ePHPm beats PHP-FPM." It is "ePHPm can beat PHP-FPM when the app and deployment model are adapted to ePHPm's worker/native-service architecture."
 
@@ -20,6 +29,13 @@ A reproducible Kubernetes lab for people deciding whether ePHPm belongs in their
 > retained as the parity evidence behind the engine switch — the same way
 > ePHPm's own [benchmarking results page](https://ephpm.dev/benchmarking/results/)
 > marks those sections historical.
+>
+> **The current-generation replacement is the `cluster` suite**
+> ([DB-BENCH.md](DB-BENCH.md#the-cluster-suite-turso-single-vs-turso-cdc-clustered)):
+> Turso single-node vs Turso CDC-clustered, whole-database and per-vhost,
+> pinned to the newest published image. It was added alongside the historical
+> lanes rather than by editing them, so `db/` now carries two image lines and
+> the driver picks the right one per suite.
 
 ## The Numbers
 
@@ -142,7 +158,8 @@ One `ephpm deploy` invalidated OPcache across two ePHPm pods without rolling PHP
 | v4 pressure | Same Laravel workload | FPM/Redis/Predis vs ePHPm worker/native KV | ePHPm worker held `159.27/s` of a `160/s` target; FPM held `100.02/s`. |
 | OPcache | Two-pod deploy invalidation | ePHPm deploy vs FPM rolling restart | ePHPm won latency and avoided rolling PHP processes. |
 | v5 dedicated | Plugin-heavy WordPress/WooCommerce browse | FPM/nginx/phpredis/Redis vs ePHPm request/native KV vs ePHPm worker/native KV | ePHPm request led: 960 completed, zero drops, 192ms average, 246ms p95. FPM sustained the rate closely; worker needs tuning. |
-| db engines | 10 sequential PDO queries / 1 INSERT | ePHPm SQLite vs Turso, single-node vs clustered sqld | Single-node is sound; clustered sqld completed zero requests at 16 concurrent writes until `write_permits = 1` (v0.6.1). |
+| db engines (**historical**, pre-v0.7.0) | 10 sequential PDO queries / 1 INSERT | ePHPm SQLite vs Turso, single-node vs clustered sqld | Single-node is sound; clustered sqld completed zero requests at 16 concurrent writes until `write_permits = 1` (v0.6.1). Both the rusqlite engine and sqld were removed in v0.7.0. |
+| db cluster | Same fixtures via `ephpm_db_*` | Turso single vs CDC-clustered, whole-DB and per-vhost; owner vs non-owner | **Authored, not yet recorded** — three of five lanes run on v0.8.5; the two per-site clustered lanes need an unpublished v0.8.6+ image. |
 | db proxy | Same fixtures, four upstreams | ePHPm DB proxy pooled vs unpooled vs no proxy | Hop costs 1.3–2.2 ms; pooling wins at c=16, loses at c=1 on the MySQL wire. Two v0.6.0 pool defects fixed in v0.6.1. |
 
 Raw data, workload details, and the original test narrative live in [the WordPress v5 report](docs/wordpress-v5.md), [the 0.4.0 retest report](docs/ephpm-0.4.0-retest.md), [the OPcache follow-up](docs/follow-up-opcache.md), [the v0.6.1 database matrix](docs/ephpm-0.6.1-db-matrix.md), and [the chronological lab report](docs/ephpm-vs-php-fpm-lab-report.md).
@@ -163,7 +180,12 @@ There is a third tier: [`scale/`](scale/README.md), the **source tier** — mult
 - PHP-FPM with `phpredis`, not only Predis/TCP.
 - Larger nodes and Metrics API data so latency can be connected to CPU and memory behavior.
 - Ten to thirty minute runs, multiple worker counts, and restart/failure testing for persistent workers.
-- A direct Octane, Swoole, RoadRunner, and ePHPm comparison.
+- Re-recording the image-pinned tiers on `v0.8.5-php8.4`, now that the manifests pin it.
+- Reference numbers for the `cluster` suite, once a v0.8.6+ image is published (two of its five lanes need one).
+- Failover, not just steady state: per-site clustered ownership churn — a node joining or dying and re-homing a tenant mid-flight — is unmeasured.
+
+The direct Octane, Swoole, RoadRunner and ePHPm comparison that used to sit on
+this list **has been done**: see [RUNTIMES-BENCH.md](RUNTIMES-BENCH.md).
 
 ## Traps That Taint A Run
 
@@ -196,6 +218,8 @@ This is a reproducible lab, not a universal benchmark. Earlier phases used three
 | `docs/` | Results, methodology, history, and reproduction instructions. |
 | `docs/assets/` | Rendered comparison charts used by this README. |
 | `k8s/` | Kubernetes manifests and k6 jobs for each benchmark phase. |
+| `db/` | The local podman tier: database-path suites, configs, fixtures, and probes. See [DB-BENCH.md](DB-BENCH.md). |
+| `rr/` | RoadRunner worker image and config used by the runtimes comparison. See [RUNTIMES-BENCH.md](RUNTIMES-BENCH.md). |
 | `scale/` | The source tier: multi-tenant scaling / overload harness and its recorded reports, imported from ephpm/multitenant-scalebench. Never table its numbers with the image-pinned tiers. |
 | `kv/` | kv-micro suite: `ephpm_kv_*` SAPI ns/op and RESP µs/op (source tier). |
 | `containment/` | containment-tax suite: `crash_containment` happy-path A/B and crash-storm lanes (source tier). |
