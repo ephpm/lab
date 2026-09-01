@@ -30,6 +30,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="$HERE/results-proxy"
 TARGET="${1:-lite}"
 mkdir -p "$OUT"
+# Create the network rather than assuming a bench script made it first.
+podman network exists "$NET" 2>/dev/null || podman network create "$NET" >/dev/null
 
 case "$TARGET" in
   lite)  CFG=configs/proxy-litewire-pool.toml; DOC=fixtures/sqlite ;;

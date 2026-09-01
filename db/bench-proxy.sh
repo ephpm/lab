@@ -30,7 +30,7 @@
 #   3. for real-upstream lanes, the rows are verified INSIDE the upstream
 #      container -- proving traffic reached mysql/postgres and did not get
 #      quietly answered by something else
-#   4. every measured cell is checked for 100% 2xx by parse-proxy.sh
+#   4. every measured cell is checked for 100% 2xx by parse.sh
 # A lane that fails a gate prints !! and is excluded from the report.
 #
 # grep NOTE: under Git Bash the default grep on PATH swallows -E/-i, so
@@ -249,6 +249,35 @@ run_lane A2-lite-remote       proxy-none-direct.toml             sqlite       ""
 run_lane B2-lite-proxy-pool   proxy-litewire-pool.toml   sqlite    ""                    leak   "$MYP" '!SQLite MySQL wire'
 run_lane C2-lite-proxy-nopool proxy-litewire-nopool.toml sqlite    ""                    leak   "$MYP" '!SQLite MySQL wire'
 stop_lw_node
+
+# --- upstream precondition -------------------------------------------
+#
+# Lanes D through I and the F24 cliff probe all need REAL upstreams, in
+# containers named `dbbench-mysql` and `dbbench-pg`. This script does not
+# create them and never has: they are long-lived (seeded once, reused
+# across runs) and starting a fresh mysql:8 per invocation would add
+# minutes of initdb to every run for no measurement.
+#
+# It used to be an unstated assumption, which meant a first-time user got
+# six lanes of gate failures with no indication why. Check it here and
+# say what to run instead.
+if ! podman container exists dbbench-mysql 2>/dev/null \
+   || ! podman container exists dbbench-pg 2>/dev/null; then
+  echo ""
+  echo "!! SKIPPING lanes D,E,F,G,H,I and the pg-cliff probe: they need real"
+  echo "!! upstreams that this script does not create. Start them once with:"
+  echo "!!"
+  echo "!!   podman run -d --name dbbench-mysql --network $NET --cpus 4 \\"
+  echo "!!     -e MYSQL_ALLOW_EMPTY_PASSWORD=1 -e MYSQL_DATABASE=bench docker.io/library/mysql:8"
+  echo "!!   podman run -d --name dbbench-pg --network $NET --cpus 4 \\"
+  echo "!!     -e POSTGRES_PASSWORD=bench -e POSTGRES_DB=bench docker.io/library/postgres:16"
+  echo "!!"
+  echo "!! (--cpus 4 so the upstream is never the bottleneck, per DB-BENCH.md.)"
+  echo "!! The litewire lanes above ran and are unaffected."
+  echo ""
+  echo "=== partial run; raw output in $OUT ==="
+  exit 1
+fi
 
 run_lane D-mysql-proxy-pool   proxy-mysql-pool.toml   mysql verify_mysql_upstream leak   "$MYP"
 run_lane E-mysql-proxy-nopool proxy-mysql-nopool.toml mysql verify_mysql_upstream leak   "$MYP"

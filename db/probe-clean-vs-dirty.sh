@@ -29,6 +29,11 @@ CURL=docker.io/curlimages/curl:latest
 IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.6.3-php8.5}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="$HERE/results-proxy"
+mkdir -p "$OUT"
+# These probes ran only as a side effect of a bench script having
+# created the network first. Create it here too so they work standalone,
+# which is how DB-BENCH.md lists them.
+podman network exists "$NET" 2>/dev/null || podman network create "$NET" >/dev/null
 get() { podman run --rm --network "$NET" "$CURL" -s --max-time 20 "$1" 2>/dev/null; }
 cleanup() { podman rm -f pcd-lw pcd-px >/dev/null 2>&1 || true; }
 trap cleanup EXIT
