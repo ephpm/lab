@@ -1,0 +1,52 @@
+# Lanes P2/P3, node 2 -- PER-SITE CLUSTERED Turso (EXPERIMENTAL).
+#
+# Identical to persite-cluster-n1.toml except for this node's addresses,
+# its node_id, and the `join` seed pointing at node 1's gossip address.
+# See n1 for why the mode is the conjunction of four keys, why the
+# addresses are static, and why the channel port is 7948.
+#
+# There is no "replica" role here and no primary_grpc_url: in per-site
+# mode every node is role = "auto" and ownership is decided per SITE by
+# rendezvous hashing over the alive nodes, not per node by an election
+# for the cluster as a whole. Which of these three nodes owns a given
+# vhost is therefore not knowable from the config -- the harness
+# discovers it at runtime and labels the lanes accordingly.
+
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+sites_dir = "/var/www/sites"
+index_files = ["index.php", "index.html"]
+
+[server.limits]
+max_connections = 1024
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[server.metrics]
+enabled = true
+
+[php]
+mode = "fpm"
+
+[db.sqlite]
+dir = "/data/sites"
+engine = "turso"
+
+[db.sqlite.replication]
+role = "auto"
+per_site = true
+
+[db.analysis]
+query_stats = false
+
+[cluster]
+enabled = true
+bind = "10.89.7.12:7946"
+join = ["10.89.7.11:7946"]
+node_id = "node-2"
+cluster_id = "dbcluster"
+secret = "bench-only-not-a-real-secret-000000000000"
+
+[cluster.channel]
+listen = "10.89.7.12:7948"

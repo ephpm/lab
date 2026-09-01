@@ -1,0 +1,56 @@
+# Lane W, node 1 -- WHOLE-DATABASE CLUSTERED Turso via the in-process CDC
+# path. One database for the whole cluster, one elected primary, replicas
+# tailing its turso_cdc stream over the cluster channel.
+#
+# This is the v0.8.x replacement for db/configs/cluster-turso-primary.toml,
+# which is kept unedited as part of the pre-v0.7.0 historical record. Two
+# things changed and both are removals:
+#
+#   * no `cdc_experimental` -- removed in v0.7.0. It used to select CDC
+#     over the sqld sidecar; sqld is gone and CDC is the only clustered
+#     path, so the flag now selects nothing. Still parsed (it warns), so
+#     leaving it in would not fail the lane, only mislead the reader.
+#   * no sqld anywhere -- no child process, no gRPC, no WAL frames.
+#
+# The role is pinned to "primary" rather than left at the "auto" default
+# so this lane measures the write path on a node that is unambiguously
+# the primary from the first request, with no election settling time to
+# wait out or mistake for a slow start.
+#
+# Static addresses and port 7948: see persite-cluster-n1.toml.
+
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+index_files = ["index.php", "index.html"]
+
+[server.limits]
+max_connections = 1024
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[server.metrics]
+enabled = true
+
+[php]
+mode = "fpm"
+
+[db.sqlite]
+path = "/data/bench.db"
+engine = "turso"
+
+[db.sqlite.replication]
+role = "primary"
+
+[db.analysis]
+query_stats = false
+
+[cluster]
+enabled = true
+bind = "10.89.7.11:7946"
+node_id = "node-1"
+cluster_id = "dbcluster"
+secret = "bench-only-not-a-real-secret-000000000000"
+
+[cluster.channel]
+listen = "10.89.7.11:7948"
