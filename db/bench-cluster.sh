@@ -41,14 +41,15 @@
 # discard a measurement.
 set -uo pipefail
 
-# Lanes S, W and P1 run on the newest published image. Lanes P2 and P3
-# need per-site CLUSTERED replication (ephpm#416), which is NOT in any
-# published image at the time of writing: it first appears in the v0.8.6
-# tag, whose Docker images are not on Docker Hub yet. Point
-# EPHPM_PERSITE_CLUSTER_IMAGE at a v0.8.6+ build to run them; otherwise
+# All five lanes run on the default image. Lanes P2 and P3 need per-site
+# CLUSTERED replication (ephpm#416), which first appears in the v0.8.6
+# tag; the v0.8.6/v0.8.7 images were published 2026-09-01, so the default
+# below is the first published line that carries it. On an older image
 # the mode gate refuses those two lanes with a message saying so, which
 # is the entire reason the gate exists (see "GATES" below).
-IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.8.5-php8.5}"
+# EPHPM_PERSITE_CLUSTER_IMAGE still points P2/P3 at a different build
+# than S/W/P1 when you need to.
+IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.8.7-php8.5}"
 PS_IMG="${EPHPM_PERSITE_CLUSTER_IMAGE:-$IMG}"
 
 OHA=ghcr.io/hatoo/oha:latest

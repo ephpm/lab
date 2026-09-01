@@ -67,18 +67,19 @@ the place for that, and the two tiers must never be put in the same table.
 > | Suites | Default image | Why that one |
 > | --- | --- | --- |
 > | `engines`, `admission`, `proxy`, `bridge`, `wp-bridge` | `ephpm/ephpm:v0.6.3-php8.5` | The newest image that still has the rusqlite engine, the sqld sidecar and `write_permits`. It also has the v0.6.1 pool fixes and the `ephpm_db_*` bridge, so all five run on it. |
-> | `cluster` | `ephpm/ephpm:v0.8.5-php8.5` | The newest **published** image. |
+> | `cluster` | `ephpm/ephpm:v0.8.7-php8.5` | The newest **published** image, and the first published line on which all five lanes run in their intended mode. |
 >
 > `--image` (or `EPHPM_IMAGE`) overrides whichever default applies. Below
 > v0.6.1 the pooled proxy lanes reproduce two defects rather than the numbers;
 > below v0.6.3 `bridge` fails its function-registration gate; at v0.7.0 and
 > above the rusqlite and sqld lanes fail at startup by design.
 >
-> v0.8.6 is tagged upstream but its images are not on Docker Hub at the time of
-> writing, which is why the `cluster` default is v0.8.5 — and why two of that
-> suite's five lanes cannot run on a published image yet. See the `cluster`
-> section for exactly which, and for the environment variable that points them
-> at a newer build.
+> The `cluster` default was v0.8.5 while v0.8.6 was tagged but unpublished, and
+> two of that suite's five lanes could not run on any published image. The
+> v0.8.6 and v0.8.7 images were published on 2026-09-01; the default is now
+> **v0.8.7**, which is where this suite's reference numbers were recorded.
+> Below v0.8.6 the two per-site clustered lanes fail their mode gate, which is
+> the correct outcome rather than a mislabelled result.
 
 ## Suites
 
@@ -89,7 +90,7 @@ the place for that, and the two tiers must never be put in the same table.
 | `proxy` | What does the DB proxy cost (a hop) and buy (pooling)? | v0.6.1–v0.6.3 (pool fixes in ephpm#221; two lanes use the removed rusqlite engine) |
 | `bridge` | What does skipping the wire entirely buy? `ephpm_db_*` vs pdo_mysql, per engine | v0.6.3 (bridge shipped in ephpm#257/#258; lane A is rusqlite) |
 | `wp-bridge` | Does the bridge move a real app? WordPress with the db-wordpress drop-in vs mysqli | v0.6.3 (lane `wp-sqlite` is rusqlite) |
-| `cluster` | What does Turso CDC replication cost — whole-database, and per vhost? | v0.8.5+ for three of five lanes; **v0.8.6+** for the two per-site clustered lanes |
+| `cluster` | What does Turso CDC replication cost — whole-database, and per vhost? | v0.8.5+ for three of five lanes; **v0.8.6+** for the two per-site clustered lanes. Recorded on **v0.8.7** |
 
 ```bash
 ./scripts/run-db-bench.sh engines           # historical: pins v0.6.3 automatically
@@ -434,18 +435,16 @@ precisely the kind of state a measured lane should not start with.
 bash db/bench-cluster.sh s                  # or one lane: s | w | p1 | p23
 ```
 
-Lanes S, W and P1 run on the default published image. **Lanes P2 and P3 do
-not**: per-site clustered replication first appears in the ePHPm v0.8.6 tag,
-whose Docker images are not published at the time of writing. Point them at a
-newer build with
+All five lanes run on the default image (v0.8.7), which is the first published
+line containing per-site clustered replication
+([ephpm#416](https://github.com/ephpm/ephpm/pull/416), first tagged in v0.8.6).
+On an older image lanes P2 and P3 fail their mode gate — which is the correct
+outcome, the alternative being a confidently mislabelled result. To run those
+two lanes against a different build than S/W/P1:
 
 ```bash
 EPHPM_PERSITE_CLUSTER_IMAGE=<a v0.8.6+ image> ./scripts/run-db-bench.sh cluster
 ```
-
-Without it those two lanes fail their mode gate with a message saying exactly
-this, which is the correct outcome — the alternative is a confidently
-mislabelled result.
 
 The suite uses its own podman network (`dbcluster-net`) with an **explicit**
 subnet, rather than the `dbbench-net` the other suites share. The clustered
@@ -458,13 +457,63 @@ its own containers, volumes and network on exit, which the older suites do not
 
 ### Reference Numbers
 
-**None yet — the suite is authored and gate-validated, not recorded.** Every
-lane has been run end to end against `ephpm/ephpm:v0.8.5-php8.5` on podman with
-short durations, purely to prove the lanes produce clean, fully-2xx numbers and
-that the gates fire correctly; those runs are not measurements and are not
-reported here. Lanes P2 and P3 have never run in their intended mode at all,
-for the image reason above. Reference numbers will be recorded once a v0.8.6+
-image is published, and only then.
+Recorded 2026-09-01 on `ephpm/ephpm:v0.8.7-php8.5` (image `85c3444cedcd`, PHP
+8.5.7 ZTS glibc), the first published image on which lanes P2 and P3 run in
+their intended mode. `DUR=15s`, `REPS=2`, `WARMUP=8s`, `--cpus 1` per node.
+All gates passed; **52/52 cells 100% HTTP 200**. Both reps are shown rather
+than averaged. Full write-up, including the per-statement cost model and an
+anomaly in the P1 read cell: [docs/cluster-persite-v087.md](docs/cluster-persite-v087.md).
+
+| Lane | Cell | c=1 RPS | c=1 p50 | c=16 RPS |
+| --- | --- | ---: | ---: | ---: |
+| `S-turso-single` | bridge-point | 1009 / 1054 | 0.91 ms | 1225 / 1536 |
+| `S-turso-single` | bridge-write | 907 / 966 | 0.96 ms | 1052 / 1379 |
+| `W-cluster-primary` | bridge-point | 877 / 943 | 0.96 ms | 1596 / 1612 |
+| `W-cluster-primary` | bridge-write | 840 / 789 | 1.02 ms | 1082 / 1336 |
+| `P1-persite-single` | bridge-point | 494 / 553 | 1.22 ms | 1101 / 1126 |
+| `P1-persite-single` | bridge-write | 826 / 827 | 1.18 ms | 1334 / 1304 |
+| `P1-persite-single` | wire-point | 354 / 333 | 2.73 ms | 592 / 585 |
+| `P2-persite-owner` | bridge-point | 829 / 826 | 1.18 ms | 1342 / 1342 |
+| `P2-persite-owner` | bridge-write | 689 / 688 | 1.30 ms | 988 / 910 |
+| `P2-persite-owner` | wire-point | 310 / 338 | 3.20 ms | 551 / 556 |
+| `P3-persite-remote` | bridge-point | 253 / 253 | 3.93 ms | 525 / 521 |
+| `P3-persite-remote` | bridge-write | 325 / 313 | 1.55 ms | 429 / 417 |
+| `P3-persite-remote` | wire-point | 343 / 344 | 2.87 ms | 562 / 558 |
+
+The three designed comparisons:
+
+- **`S → W`, what clustering costs: −11.8% (read) / −13.0% (write) at c=1.**
+  Both lanes' reps spread 4–7%, so by the 20% rule below this is **unresolved**
+  and bounded above at ~13% rather than pinned. The c=16 row of this pair is
+  unreadable (S's reps differ by 22–27%). What is clear is that CDC clustering
+  does not collapse the write path the way the historical clustered **sqld**
+  lane did (0 / 0 RPS, further up this file).
+- **`P1 → P2`, what clustering costs a tenant: −16.7% at c=1, −28.1% at c=16,
+  on the write path.** Both c=1 cells have 0.2–0.3% rep spread, so the 16.7%
+  gap is resolved despite sitting under the 20% heuristic — that threshold is
+  about typical noise, and here the effect is fifty times the observed spread.
+  The `wire-point` control is flat (−5.6%), so the cost is replication work,
+  not a slower build. **The read-path delta is not measurable from this run**:
+  `P1 bridge-point` is anomalous (36% slower than the *write* cell on the same
+  node, 11.3% spread, p99 6–9 ms against P2's 1.5 ms) and should be
+  re-recorded before anyone quotes it.
+- **`P2 → P3`, the `sql/<site>` forward hop: −69.4% (read) / −53.7% (write) at
+  c=1.** The best-resolved result in the suite — 0.0–3.8% rep spread against
+  54–69% effects. The two fixtures agree on a **per-statement** cost derived
+  independently: **275 µs** (read, +2.748 ms over 10 forwarded statements) and
+  **255 µs** (write, +0.255 ms over 1). The hop is paid per *statement*, not
+  per request, so a ten-query page on a non-owner pays it ten times.
+  **The `wire-point` control did its job**: on the non-owner the non-forwarded
+  path is *not* slower (+6.1% at c=1, +1.2% at c=16, sub-1% spread), which is
+  what makes "the difference is the hop" falsifiable rather than asserted.
+
+Two things to pass on. `P3 bridge-write` at **c=1** has a p50 of 1.55 ms but a
+p95 of 15.4 ms and a p99 of 25–26 ms — a 10× median-to-p95 tail at a
+concurrency of one, where the owner's equivalent cell sits at 2.3 ms p95. And
+the divergence probe reproduced exactly: a stock `pdo_mysql` write on the
+non-owner left the owner's count unchanged (91463) and the writer's one higher
+(91464). That gap's fix ([ephpm#432](https://github.com/ephpm/ephpm/issues/432))
+is **not** in v0.8.7, so these numbers document the asymmetry as it ships.
 
 ## Caveats
 
