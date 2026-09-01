@@ -95,10 +95,11 @@ data:
     mysql_listen = "127.0.0.1:3306"
 
 # ---------------------------------------------------------------------------
-# ePHPm config variant: EXPERIMENTAL Turso Database engine for the db lane.
+# ePHPm config variant: explicit Turso engine for the db lane.
 # Identical to bench-ephpm-config except [db.sqlite] engine = "turso".
-# The engine knob shipped in v0.6.0, which this manifest now pins, so the
-# lane is live — see the bench-ephpm-turso Deployment comment.
+# On the v0.8.5 pin this is a no-op restatement of the DEFAULT: v0.7.0 made
+# Turso the only engine, so this ConfigMap no longer varies anything and the
+# lane is a duplicate of bench-ephpm — see the Deployment comment below.
 # ---------------------------------------------------------------------------
 ---
 apiVersion: v1
@@ -407,7 +408,7 @@ spec:
     spec:
       containers:
       - name: ephpm
-        image: ephpm/ephpm:v0.6.3-php8.4
+        image: ephpm/ephpm:v0.8.5-php8.4
         ports:
         - containerPort: 8080
         resources:
@@ -454,14 +455,15 @@ spec:
     targetPort: 8080
 
 # ---------------------------------------------------------------------------
-# 1b. ePHPm + EXPERIMENTAL Turso engine — db lane only. The `[db.sqlite]
-#     engine` knob shipped in v0.6.0 and this manifest pins v0.6.3, so the
-#     lane is enabled (replicas: 1). NOTE: no k6 Job drives this lane —
-#     it is deployed but undriven; measure it by hand as described below.
-#     Verify the engine actually engaged before trusting any number: the
-#     pod log must show the experimental-engine startup warning. Then run
-#     the db.php k6 profile against http://bench-ephpm-turso:8080/db.php
-#     and compare against the bench-ephpm lane's db.php result.
+# 1b. ePHPm + explicit Turso engine — db lane only. The `[db.sqlite]
+#     engine` knob is, as of the v0.8.5 pin, a no-op: v0.7.0 removed the
+#     rusqlite engine and made Turso the only value, so this lane now
+#     duplicates bench-ephpm rather than contrasting with it. It still
+#     starts, and no k6 Job drives it. There is no longer an
+#     experimental-engine startup warning to verify, because there is no
+#     longer an alternative engine to warn about. The comparison this lane
+#     was reaching for now lives in the DB-BENCH.md `cluster` suite, on the
+#     local podman tier where the effect is resolvable.
 #     The engine is still upstream-Beta and single-node only; ePHPm rejects
 #     `engine = "turso"` combined with clustered SQLite at startup. For the
 #     single-host measurement of the same question, see DB-BENCH.md.
@@ -489,7 +491,7 @@ spec:
     spec:
       containers:
       - name: ephpm
-        image: ephpm/ephpm:v0.6.3-php8.4
+        image: ephpm/ephpm:v0.8.5-php8.4
         ports:
         - containerPort: 8080
         resources:
@@ -1242,7 +1244,7 @@ spec:
     spec:
       containers:
       - name: ephpm
-        image: ephpm/ephpm:v0.6.3-php8.4
+        image: ephpm/ephpm:v0.8.5-php8.4
         ports:
         - containerPort: 8080
         resources:
