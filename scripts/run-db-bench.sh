@@ -46,12 +46,12 @@ shift
 
 # Pinned to the last image that still has the pre-v0.7.0 machinery.
 HISTORICAL_IMAGE="docker.io/ephpm/ephpm:v0.6.3-php8.5"
-# Newest PUBLISHED image, and the first published line on which all five
-# `cluster` lanes run in their intended mode -- per-site clustered
-# replication (ephpm#416) first appears in v0.8.6, and the v0.8.6/v0.8.7
-# images were published 2026-09-01. The cluster suite's reference numbers
-# in DB-BENCH.md were recorded on this exact tag.
-CURRENT_IMAGE="docker.io/ephpm/ephpm:v0.8.7-php8.5"
+# Newest PUBLISHED image. All five `cluster` lanes run in their intended
+# mode on any v0.8.6+ image -- per-site clustered replication (ephpm#416)
+# first appears in v0.8.6, and the v0.8.6/v0.8.7 images were published
+# 2026-09-01. The cluster suite's reference numbers in DB-BENCH.md were
+# recorded on v0.8.7-php8.5; a fresh run uses the newest published tag below.
+CURRENT_IMAGE="docker.io/ephpm/ephpm:v0.10.8-php8.5"
 
 case "$SUITE" in
   cluster) DEFAULT_IMAGE="$CURRENT_IMAGE" ;;
