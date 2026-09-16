@@ -5,12 +5,12 @@ Author: Benjamin Pace
 A reproducible Kubernetes lab for people deciding whether ePHPm belongs in their PHP deployment. It compares published ePHPm PHP 8.4 images with the official PHP 8.4 FPM image and nginx across small scripts, synthetic apps, Krayin CRM, Laravel, Redis/Predis, ePHPm native KV, worker mode, and clustered OPcache invalidation.
 
 > **Manifests and recorded numbers are pinned separately, on purpose.** The
-> Kubernetes manifests now pin `ephpm/ephpm:v0.8.5-php8.4`, the newest
+> Kubernetes manifests now pin `ephpm/ephpm:v0.10.8-php8.4`, the newest
 > published image. Most tables below were recorded on **older** images —
 > `v0.4.0` through `v0.6.3` — and each row says which. A version bump changes
 > the effective configuration (v0.5.0 autotuning being the clearest example),
 > so numbers recorded across a bump are not directly comparable and the tables
-> are **due for a re-record on v0.8.5**. Every row is labelled rather than
+> are **due for a re-record on v0.10.8**. Every row is labelled rather than
 > quietly restated against the new pin.
 
 > This is not "ePHPm beats PHP-FPM." It is "ePHPm can beat PHP-FPM when the app and deployment model are adapted to ePHPm's worker/native-service architecture."
@@ -180,7 +180,7 @@ There is a third tier: [`scale/`](scale/README.md), the **source tier** — mult
 - PHP-FPM with `phpredis`, not only Predis/TCP.
 - Larger nodes and Metrics API data so latency can be connected to CPU and memory behavior.
 - Ten to thirty minute runs, multiple worker counts, and restart/failure testing for persistent workers.
-- Re-recording the image-pinned tiers on `v0.8.5-php8.4`, now that the manifests pin it.
+- Re-recording the image-pinned tiers on `v0.10.8-php8.4`, now that the manifests pin it.
 - Reference numbers for the `cluster` suite, once a v0.8.6+ image is published (two of its five lanes need one).
 - Failover, not just steady state: per-site clustered ownership churn — a node joining or dying and re-homing a tenant mid-flight — is unmeasured.
 

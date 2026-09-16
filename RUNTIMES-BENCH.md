@@ -11,14 +11,14 @@ from the ePHPm-lab report's next-tests list.
 
 | Runtime | Image | PHP |
 |---------|-------|-----|
-| ePHPm v0.8.5 | `ephpm/ephpm:v0.8.5-php8.4` | 8.4 ZTS, glibc |
+| ePHPm v0.10.8 | `ephpm/ephpm:v0.10.8-php8.4` | 8.4 ZTS, glibc |
 | nginx + php-fpm | `nginx:1.27-alpine` + `php:8.4-fpm` (Debian) | 8.4 NTS, glibc |
 | FrankenPHP | `dunglas/frankenphp:latest` | 8.5 ZTS, glibc (image default; see caveat) |
 | Swoole | `phpswoole/swoole:php8.4` | 8.4 NTS, glibc |
 | RoadRunner | `php:8.4-cli-alpine` + `ghcr.io/roadrunner-server/roadrunner:2024` | 8.4 NTS, musl (see caveat) |
-| ePHPm v0.8.5 worker mode | `ephpm/ephpm:v0.8.5-php8.4` (`[php] mode = "worker"`) | 8.4 ZTS, glibc |
+| ePHPm v0.10.8 worker mode | `ephpm/ephpm:v0.10.8-php8.4` (`[php] mode = "worker"`) | 8.4 ZTS, glibc |
 
-The manifests pin **v0.8.5**, the newest published image. It carries the
+The manifests pin **v0.10.8**, the newest published image. It carries the
 whole v0.4.x line (v0.4.1: 101x db.php latency fix + SHA-NI; v0.4.2:
 HTTP `TCP_NODELAY` -13% p99, worker dispatch fastpath, mimalloc/LTO),
 v0.5.0's **resource-aware autotuning**, the v0.6.x database-path work
@@ -30,7 +30,7 @@ engine consolidation onto Turso.
 > `v0.4.0`, and the rest of the file was recorded on v0.6.3. A version bump
 > changes the effective configuration (v0.5.0 autotuning is the documented
 > example, see the caveat below), so these tables are **due for a re-record**
-> and no row here should be read as a v0.8.5 measurement. Rows are labelled
+> and no row here should be read as a v0.10.8 measurement. Rows are labelled
 > with the version they were taken on rather than restated against the pin.
 For the v0.4.0-vs-v0.4.1 before/after,
 see [docs/ephpm-0.4.1-retest.md](docs/ephpm-0.4.1-retest.md). The
@@ -57,7 +57,7 @@ the reproduction path for the database-latency number.
 Service — identical to the ePHPm db.php lane but with an explicit
 `[db.sqlite] engine = "turso"`.
 
-**On the current v0.8.5 pin this lane no longer answers anything.** It was
+**On the current v0.10.8 pin this lane no longer answers anything.** It was
 written when `turso` was an experimental alternative to the rusqlite C
 engine, and the comparison it existed to make was Turso-vs-rusqlite. v0.7.0
 removed rusqlite and made Turso the only engine and the default, so
