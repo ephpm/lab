@@ -97,7 +97,7 @@ data:
 # ---------------------------------------------------------------------------
 # ePHPm config variant: explicit Turso engine for the db lane.
 # Identical to bench-ephpm-config except [db.sqlite] engine = "turso".
-# On the v0.8.5 pin this is a no-op restatement of the DEFAULT: v0.7.0 made
+# On the v0.10.8 pin this is a no-op restatement of the DEFAULT: v0.7.0 made
 # Turso the only engine, so this ConfigMap no longer varies anything and the
 # lane is a duplicate of bench-ephpm — see the Deployment comment below.
 # ---------------------------------------------------------------------------
@@ -408,7 +408,7 @@ spec:
     spec:
       containers:
       - name: ephpm
-        image: ephpm/ephpm:v0.8.5-php8.4
+        image: ephpm/ephpm:v0.10.8-php8.4
         ports:
         - containerPort: 8080
         resources:
@@ -456,7 +456,7 @@ spec:
 
 # ---------------------------------------------------------------------------
 # 1b. ePHPm + explicit Turso engine — db lane only. The `[db.sqlite]
-#     engine` knob is, as of the v0.8.5 pin, a no-op: v0.7.0 removed the
+#     engine` knob is, as of the v0.10.8 pin, a no-op: v0.7.0 removed the
 #     rusqlite engine and made Turso the only value, so this lane now
 #     duplicates bench-ephpm rather than contrasting with it. It still
 #     starts, and no k6 Job drives it. There is no longer an
@@ -491,7 +491,7 @@ spec:
     spec:
       containers:
       - name: ephpm
-        image: ephpm/ephpm:v0.8.5-php8.4
+        image: ephpm/ephpm:v0.10.8-php8.4
         ports:
         - containerPort: 8080
         resources:
@@ -1244,7 +1244,7 @@ spec:
     spec:
       containers:
       - name: ephpm
-        image: ephpm/ephpm:v0.8.5-php8.4
+        image: ephpm/ephpm:v0.10.8-php8.4
         ports:
         - containerPort: 8080
         resources:

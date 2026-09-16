@@ -299,7 +299,7 @@ spec:
               mountPath: /scripts
       containers:
         - name: ephpm
-          image: ephpm/ephpm:v0.8.5-php8.4
+          image: ephpm/ephpm:v0.10.8-php8.4
           command: ["sh", "/scripts/ephpm-start.sh"]
           env:
             - name: CACHE_BACKEND
@@ -400,7 +400,7 @@ spec:
               mountPath: /scripts
       containers:
         - name: ephpm-worker
-          image: ephpm/ephpm:v0.8.5-php8.4
+          image: ephpm/ephpm:v0.10.8-php8.4
           command: ["sh", "/scripts/ephpm-worker-start.sh"]
           env:
             - name: CACHE_BACKEND
