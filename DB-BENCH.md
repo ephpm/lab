@@ -344,8 +344,11 @@ slower than `P2`'s, whatever slowed it down would not be forwarding.
 - **Not failover.** Every lane measures a settled cluster with stable
   membership. Ownership churn — a node joining or dying and re-homing a site
   mid-flight — is where per-site clustered mode's interesting failure modes
-  live, and this suite deliberately does not go there. It is a throughput
-  matrix, not a chaos test.
+  live, and this *throughput* suite deliberately does not go there. The
+  crash-restart **correctness** gate that does is a separate script,
+  [`db/stress-persite-restart.sh`](#the-crash-restart-stress-a-correctness-gate-not-a-benchmark)
+  — it reuses this suite's cluster, kills the owner mid-write, and asserts no
+  acknowledged write is lost.
 - **Not "is clustered mode ready".** Turso is Beta upstream and per-site
   clustered mode is marked experimental by ePHPm itself. A cost measurement is
   not a maturity claim.
@@ -514,6 +517,72 @@ the divergence probe reproduced exactly: a stock `pdo_mysql` write on the
 non-owner left the owner's count unchanged (91463) and the writer's one higher
 (91464). That gap's fix ([ephpm#432](https://github.com/ephpm/ephpm/issues/432))
 is **not** in v0.8.7, so these numbers document the asymmetry as it ships.
+
+## The Crash-Restart Stress: a correctness gate, not a benchmark
+
+`db/stress-persite-restart.sh` is the one script in this file that measures
+**correctness under failover** rather than cost under load. It is the in-repo
+home for the release gate that ePHPm [#659](https://github.com/ephpm/ephpm/pull/659)
+left open: the per-site ownership-epoch fix ([#654](https://github.com/ephpm/ephpm/issues/654))
+has unit tests for its ranking/adoption primitives, but nothing in the ePHPm
+repo exercises the end-to-end crash-restart **timing** on a live multi-node
+cluster. This does, and because it lives here it no longer depends on throwaway
+infra that gets torn down between releases.
+
+**The bug it reproduces (#654, failure mode 1).** A site's owner is chosen by
+rendezvous hashing over the *alive* nodes. Kill the owner A of site `t1`: an
+interim owner B is elected and *acknowledges* writes. When A returns it is the
+highest-HRW node for `t1` again and reclaims ownership. Before #659, A had no
+durable record that B's stint out-ranked its own — the per-stint `change_id`
+resets each stint, and B's gossip `SiteVersion` advertisement is short-lived
+(`SITE_VERSION_TTL` ~10 s) and has lapsed by the time A is back — so A trusted
+its own **stale** copy, re-served it, and every write B had acknowledged was
+silently discarded. Every health check stayed green. #659 carries the epoch
+**durably** on both replication channels (`Frame::Hello`, `SnapshotHeader`) and
+adopts it `max(local, received)`, so a returning owner never out-ranks the
+interim owner's acknowledged writes with a stale copy.
+
+**What it asserts — permanent, cluster-wide, zero acknowledged-write loss.**
+The source of truth is the number of writes the cluster *acknowledged*: every
+`write.php` returning `{"status":"ok"}` inserted exactly one `wbench` row and
+said so, and a correct system never loses an acknowledged write. After the
+kill/return cycle has converged, the **local** `wbench` count on **every** node
+(read over stock `pdo_mysql`, which is not forwarded) must equal the total
+acknowledged writes. A node that is short lost acknowledged data; a cluster that
+is short lost it for good. The assertion is deliberately **timing-tolerant** — it
+catches *permanent* loss, the actual harm, rather than the millisecond-wide
+advert-lapse race — while `RETURN_DELAY` still holds A down past the TTL so a
+pre-#659 build hits the dangerous path as the likely outcome, not a coin-flip.
+
+**No default image, on purpose.** A crash-restart gate run against the wrong
+build is worse than no run, so `EPHPM_IMAGE` is required:
+
+```bash
+# teeth check first: the last pre-#659 published image MUST fail (loses writes)
+EPHPM_IMAGE=docker.io/ephpm/ephpm:v0.13.2-php8.5 bash db/stress-persite-restart.sh
+# then the gate: the fix build MUST pass
+EPHPM_IMAGE=ephpm:v0.13.3-rc                     bash db/stress-persite-restart.sh
+```
+
+It reuses the `cluster` suite's fixtures and `dbcluster-net`, under its own
+`dbrr-` container/volume names so a leftover never collides. It uses its **own**
+three per-site configs (`persite-restart-n{1,2,3}.toml`) rather than the pinned
+`persite-cluster-*.toml`: the latter set `[php] mode = "fpm"`, valid on the
+suite's pinned v0.8.7 but a hard startup error on a current image (the knob was
+tightened to `per_request`/`worker` only), and a current multi-site node also
+refuses `/metrics` without a `[server.metrics] token`. The restart configs fix
+both, so bumping the image under test never disturbs the pinned bench. Tunables
+(`BASE_WRITES`, `INTERIM_WRITES`, `RETURN_DELAY`,
+`HANDOVER_TIMEOUT`, `CONVERGE_TIMEOUT`, `ITERATIONS`) have working defaults; raw
+per-run logs land in `db/results-restart/`. The three outcomes are **PASS**
+(every node holds every acknowledged write), **FAIL** (a node is short — the
+build must not be tagged), and **abort-with-reason** (setup failed or the
+handover never happened — *not* a pass; the gate did not run).
+
+> **Local-tier caveat, same as everything else here.** One host, `--cpus 1` per
+> node, three containers across a podman bridge. The timing of a real
+> multi-node failover differs, so a PASS here is necessary, not sufficient — but
+> a FAIL here is a genuine, reproduced write loss.
 
 ## Caveats
 

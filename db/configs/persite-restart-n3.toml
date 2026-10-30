@@ -1,0 +1,43 @@
+# Crash-restart stress, node 3 -- PER-SITE CLUSTERED Turso, current (v0.13.x)
+# image. See persite-restart-n1.toml for the rationale. Identical to n1
+# except this node's addresses, node_id, and the join seed pointing at node 1.
+
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+sites_dir = "/var/www/sites"
+index_files = ["index.php", "index.html"]
+
+[server.limits]
+max_connections = 1024
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[server.metrics]
+enabled = true
+token = "metrics-stress-token-0000"
+
+[php]
+mode = "per_request"
+
+[db.sqlite]
+dir = "/data/sites"
+engine = "turso"
+
+[db.sqlite.replication]
+role = "auto"
+per_site = true
+
+[db.analysis]
+query_stats = false
+
+[cluster]
+enabled = true
+bind = "10.89.7.13:7946"
+join = ["10.89.7.11:7946"]
+node_id = "node-3"
+cluster_id = "dbcluster"
+secret = "bench-only-not-a-real-secret-000000000000"
+
+[cluster.channel]
+listen = "10.89.7.13:7948"
