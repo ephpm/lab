@@ -1,0 +1,60 @@
+# Crash-restart stress, node 1 -- PER-SITE CLUSTERED Turso, for a CURRENT
+# (v0.13.x) image. Used by db/stress-persite-restart.sh.
+#
+# This is a deliberate copy of persite-cluster-n1.toml rather than a reuse
+# of it. The `cluster` bench suite is pinned to v0.8.7 (DB-BENCH.md), where
+# `[php] mode = "fpm"` was still accepted; ePHPm later tightened that knob
+# to fail closed on unknown variants, so on a v0.13.x image `"fpm"` is a
+# hard startup error and the only valid values are `per_request` (default)
+# and `worker`. The crash-restart gate runs against the image under test
+# (v0.13.2 as the pre-fix teeth check, v0.13.3-rc as the fix), so it needs
+# a config that is valid there -- hence `mode = "per_request"` and a config
+# file of its own, so bumping it for a new image never disturbs the pinned
+# bench. Everything else is identical to persite-cluster-n1.toml: see that
+# file for why the mode is a four-key conjunction, why the addresses are
+# static (clustered replication fails closed on an unspecified bind), and
+# why the channel port is 7948.
+
+[server]
+listen = "0.0.0.0:8080"
+document_root = "/var/www/html"
+sites_dir = "/var/www/sites"
+index_files = ["index.php", "index.html"]
+
+[server.limits]
+max_connections = 1024
+per_ip_rate = 1000000.0
+per_ip_burst = 1000000
+
+[server.metrics]
+enabled = true
+# On a multi-site node /metrics is REFUSED (403) without a credential: every
+# tenant's PHP can reach loopback and internal ports, so an IP ACL cannot keep
+# tenants out. The stress reads ephpm_cdc_subscribers to find a site's owner,
+# so it configures a token here and sends `Authorization: Bearer <token>`.
+# Bench-only, not a secret.
+token = "metrics-stress-token-0000"
+
+[php]
+mode = "per_request"
+
+[db.sqlite]
+dir = "/data/sites"
+engine = "turso"
+
+[db.sqlite.replication]
+role = "auto"
+per_site = true
+
+[db.analysis]
+query_stats = false
+
+[cluster]
+enabled = true
+bind = "10.89.7.11:7946"
+node_id = "node-1"
+cluster_id = "dbcluster"
+secret = "bench-only-not-a-real-secret-000000000000"
+
+[cluster.channel]
+listen = "10.89.7.11:7948"
