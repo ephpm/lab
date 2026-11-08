@@ -1,0 +1,124 @@
+name: Pin ePHPm
+
+# Keep the lab's ACTIVE ePHPm image pins tracking the latest published
+# ephpm/ephpm release. When a newer version appears on Docker Hub, this opens
+# (or updates) a PR that bumps only the active pins listed in
+# .github/ephpm-active-pins.txt. Historical suites are never touched.
+#
+# The "latest" version comes from Docker Hub, NOT GitHub Releases: a known dind
+# CI bug means images can publish without a corresponding Release, so Releases
+# are an unreliable signal. See .github/scripts/bump-ephpm-pin.sh.
+
+on:
+  schedule:
+    # Daily at 06:17 UTC — a quiet, off-peak slot (fixed literal, not computed).
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'ePHPm version X.Y.Z to pin (leave blank to use the latest published on Docker Hub)'
+        required: false
+        type: string
+  repository_dispatch:
+    # Optional immediacy hook: ephpm/ephpm's release pipeline can send this to
+    # pin the moment an image publishes (needs a lab-write token secret over
+    # there — see docs/auto-pin-ephpm.md). The scheduled poll covers it with
+    # zero extra auth if this is never wired up.
+    types: [ephpm-released]
+
+# Only the built-in token is needed — this workflow runs in ephpm/lab and edits
+# ephpm/lab, so there is no cross-repo auth.
+permissions:
+  contents: write
+  pull-requests: write
+
+# Never let two bump runs race each other.
+concurrency:
+  group: pin-ephpm
+  cancel-in-progress: false
+
+jobs:
+  pin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Resolve target version
+        id: resolve
+        env:
+          # workflow_dispatch input takes precedence, then repository_dispatch
+          # client_payload.version, else the script polls Docker Hub.
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          DISPATCH_VERSION: ${{ github.event.client_payload.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            VERSION="$INPUT_VERSION"
+          elif [ -n "${DISPATCH_VERSION:-}" ]; then
+            VERSION="$DISPATCH_VERSION"
+          else
+            VERSION="$(.github/scripts/bump-ephpm-pin.sh --print-version)"
+          fi
+          echo "Resolved target version: v${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Bump active pins
+        id: bump
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Capture the human-readable summary for the PR body.
+          .github/scripts/bump-ephpm-pin.sh --version "$VERSION" | tee /tmp/pin-summary.txt
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No active pin changed — already at v${VERSION}."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compose PR body
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "PR_BODY<<PR_BODY_EOF"
+            echo "Automated bump of the lab's **active** ePHPm image pins to \`ephpm/ephpm:v${VERSION}\`."
+            echo ""
+            echo "The active pins are enumerated in [\`.github/ephpm-active-pins.txt\`](.github/ephpm-active-pins.txt) and edited by [\`.github/scripts/bump-ephpm-pin.sh\`](.github/scripts/bump-ephpm-pin.sh). Historical suites (pre-v0.7.0 rusqlite/sqld scripts, \`HISTORICAL_IMAGE\`, recorded-result markdown, \`rr/Dockerfile\`) are **not** touched."
+            echo ""
+            echo "### Files changed"
+            echo ""
+            git diff --name-only | sed 's/^/- `/; s/$/`/'
+            echo ""
+            echo "### Diff summary"
+            echo ""
+            echo '```diff'
+            git diff
+            echo '```'
+            echo ""
+            echo "---"
+            echo "_Latest version determined from Docker Hub (newest tag with both \`-php8.4\` and \`-php8.5\` variants), not GitHub Releases. Review before merging — the active/historical distinction and bench-pin changes deserve a glance._"
+            echo ""
+            echo "_To enable auto-merge later, either add \`gh pr merge --auto --squash\` after the create step, or set \`peter-evans/create-pull-request\`'s branch to a ruleset that auto-merges. Left off deliberately._"
+            echo "PR_BODY_EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Create or update PR
+        if: steps.bump.outputs.changed == 'true'
+        # Pinned by commit SHA for supply-chain hygiene (cargo-deny style).
+        # 22a9089 == peter-evans/create-pull-request v7.0.11.
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.11
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: auto/pin-ephpm-v${{ steps.resolve.outputs.version }}
+          delete-branch: true
+          commit-message: 'chore: pin ePHPm v${{ steps.resolve.outputs.version }}'
+          title: 'chore: pin ePHPm v${{ steps.resolve.outputs.version }}'
+          body: ${{ env.PR_BODY }}
+          labels: |
+            automated
+            dependencies

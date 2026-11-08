@@ -1,0 +1,56 @@
+# ePHPm active-pin manifest
+# -----------------------------------------------------------------------------
+# The single source of truth for WHICH image pins track the latest published
+# ephpm/ephpm release. `.github/scripts/bump-ephpm-pin.sh` edits ONLY the files
+# listed here, and ONLY the specific occurrences described by each entry's kind.
+# Anything not listed is never modified.
+#
+# HARD RULE: this file must never list a historical/frozen pin. The historical
+# suites are frozen on purpose (bumping them breaks the code paths they exercise
+# or falsifies recorded results):
+#   - pre-v0.7.0 rusqlite/sqld scripts:
+#       db/bench-{engines,proxy,bridge,wordpress-bridge,admission}.sh, db/probe-*.sh
+#   - scripts/run-db-bench.sh's HISTORICAL_IMAGE variable (v0.6.3) — the file is
+#     listed below, but only its CURRENT_IMAGE var is active; HISTORICAL_IMAGE is
+#     additionally protected by the script's built-in HISTORICAL_IMAGE skip guard.
+#   - recorded-result markdown: DB-BENCH.md, docs/*, scale/reports/*
+#   - rr/Dockerfile (RoadRunner competitor image, not ePHPm)
+#
+# Belt-and-suspenders: the bump script always skips any line containing
+# `HISTORICAL_IMAGE` or the literal marker `ephpm-pin:historical`, even inside a
+# listed file. To freeze a single pin inside an otherwise-active file, append
+# `# ephpm-pin:historical` (or `<!-- ephpm-pin:historical -->` in markdown).
+#
+# Format (whitespace-separated, `#` starts a comment):
+#   <kind>  <path>  <php-suffix>  [shell-var-name]
+#
+# kind:
+#   manifest  Replace image-form pins `ephpm/ephpm:vX.Y.Z-<suffix>` on every
+#             non-guarded line. Used for k8s YAML.
+#   shellvar  Same replacement, but ONLY on non-guarded lines that assign the
+#             named shell variable (`^\s*VAR=...`). Everything else in the file
+#             (including HISTORICAL_IMAGE) is left alone.
+#   prose     Replace image-form pins AND the bare current-pin version token
+#             (e.g. `v0.10.8`) that matches the file's own image-form pin, on
+#             non-guarded lines. Used for "current pin" documentation.
+#
+# The `-php<minor>` suffix of each pin is always preserved; only the vX.Y.Z part
+# changes. k8s + prose pins are php8.4; the DB cluster suite is php8.5.
+
+# --- k8s manifest pins (12 image pins across 7 files) -------------------------
+manifest  k8s/krayin-v3.yaml         php8.4
+manifest  k8s/laravel-v4.yaml        php8.4
+manifest  k8s/opcache-cluster.yaml   php8.4
+manifest  k8s/php-benchmark.yaml     php8.4
+manifest  k8s/php-benchmark-v2.yaml  php8.4
+manifest  k8s/runtimes-bench.yaml    php8.4
+manifest  k8s/wordpress-v5.yaml      php8.4
+
+# --- DB cluster suite pins (the only active db pins; php8.5) -------------------
+shellvar  db/bench-cluster.sh        php8.5  IMG
+shellvar  scripts/run-db-bench.sh    php8.5  CURRENT_IMAGE
+
+# --- "current pin" prose ------------------------------------------------------
+prose     README.md                  php8.4
+prose     RUNTIMES-BENCH.md          php8.4
+prose     k8s/OPCACHE-CLUSTER.md     php8.4
