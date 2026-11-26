@@ -4,8 +4,9 @@
 # Multi-tenant mode is keyed by [server] sites_dir: each request's Host becomes
 # a canonical site key that selects BOTH sites_dir/<key> (docroot) and
 # db.sqlite dir/<key>.db (the per-site Turso database). Worker mode is
-# unsupported with sites_dir, so php.mode is fpm (per-request) — the realistic
-# multi-tenant shape.
+# unsupported with sites_dir, so php.mode is per_request — the realistic
+# multi-tenant shape. (ePHPm >= v0.9.0 renamed the old "fpm" value to
+# "per_request"; "fpm" is now a hard startup error.)
 
 [server]
 listen = "127.0.0.1:@PORT@"
@@ -17,7 +18,7 @@ idle = 60
 request = 60
 
 [php]
-mode = "fpm"
+mode = "per_request"
 memory_limit = "256M"
 max_execution_time = 60
 
