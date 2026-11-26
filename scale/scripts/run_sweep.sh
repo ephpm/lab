@@ -23,13 +23,16 @@ PORT="${PORT:-8110}"
 WIREPORT="${WIREPORT:-13306}"
 NS="${NS:-10 25 50 100 250 500 1000}"
 CAPS="${CAPS:-256 4096}"
-# FPM execution engine axis (PR #296). Each engine is a FRESH ephpm instance
-# whose ONLY difference is the exported EPHPM_PHP__FPM_ENGINE env var — same
-# binary throughout. "spawn_blocking" (default, unbounded on tokio's blocking
-# pool) vs "pool" (a fixed pool of dedicated OS threads == autotuned worker
-# count; bounded concurrency). Results are namespaced per engine so a
-# head-to-head never clobbers the other's point.
-ENGINES="${ENGINES:-spawn_blocking}"
+# NOTE: ePHPm >= v0.9.0 removed the FPM execution-engine axis this sweep used to
+# vary (the spawn_blocking/pool knob and its EPHPM_PHP__FPM_ENGINE env var, PR
+# #296). PHP now always runs on an owned, fixed OS-thread pool; the only
+# execution knob is [php] mode (per_request | worker), and worker mode is
+# unsupported with sites_dir. So in this multi-tenant harness there is exactly
+# one valid config: per_request. The engine loop and the env export were
+# removed — exporting EPHPM_PHP__FPM_ENGINE now hits a deny_unknown_fields
+# section and fails startup on current binaries. Results are namespaced under
+# mode-per_request so this layout can grow a real [php] mode axis later.
+PHP_MODE="per_request"
 CORES="$(nproc)"
 C="${C:-$((CORES * 4))}"
 WARMUP="${WARMUP:-8}"
@@ -153,20 +156,23 @@ seed_copy() {
 }
 
 one_point() {
-  local cap="$1" n="$2" engine="${3:-spawn_blocking}"
-  echo "=== engine=$engine cap=$cap N=$n ==="
+  local cap="$1" n="$2"
+  echo "=== mode=$PHP_MODE cap=$cap N=$n ==="
   bash "$HERE/scripts/provision.sh" "$SITES" "$DOCROOT" "$n" "$PAD"
   seed_copy "$n"
   render_config "$cap"
   start_server
 
-  # Record the engine's own autotune line from startup so the pool-size cap is
-  # explicit in the result. spawn_blocking emits no pool line (pool_size=0).
+  # Record the owned-pool autotune line and the multi-tenant hardening lines
+  # from startup so the result carries both the thread_count and which security
+  # layers were active. per_request mode logs "... execution pool started
+  # thread_count=N" (the message is "php execution pool started" on current
+  # builds — match on "execution pool started" so a label tweak can't break it).
   local startup="$CUR_RESULTS/cap-$cap-n-$n.startup.txt"
-  grep -aiE "fpm execution pool started|HTTP listening|per-site database mode|autotune" "$LOG" \
+  grep -aiE "execution pool started|HTTP listening|per-site database mode|embedded SQLite mode|concurrency derived|scrubbed the process environment|self-sandbox|AF_UNIX connect fence|authenticating=" "$LOG" \
     | sed -r 's/\x1b\[[0-9;]*m//g' > "$startup" 2>/dev/null || true
   local pool_size=0
-  if grep -q "fpm execution pool started" "$startup" 2>/dev/null; then
+  if grep -q "execution pool started" "$startup" 2>/dev/null; then
     pool_size="$(grep -oE 'thread_count=[0-9]+' "$startup" | head -1 | grep -oE '[0-9]+')"
     pool_size="${pool_size:-0}"
   fi
@@ -184,31 +190,26 @@ one_point() {
   local out="$CUR_RESULTS/cap-$cap-n-$n.json"
   # merge: {load: <lg>, resource: <sp>, meta:{...}}
   {
-    printf '{"meta":{"workload":"%s","engine":"%s","pool_size":%s,"cap":%s,"n":%s,"concurrency":%s,"warmup":%s,"dur":%s,"ulimit_n":%s,"cores":%s},' \
-      "$WORKLOAD" "$engine" "$pool_size" "$cap" "$n" "$C" "$WARMUP" "$DUR" "$ULIMIT_N" "$CORES"
+    printf '{"meta":{"workload":"%s","mode":"%s","pool_size":%s,"cap":%s,"n":%s,"concurrency":%s,"warmup":%s,"dur":%s,"ulimit_n":%s,"cores":%s},' \
+      "$WORKLOAD" "$PHP_MODE" "$pool_size" "$cap" "$n" "$C" "$WARMUP" "$DUR" "$ULIMIT_N" "$CORES"
     printf '"load":'; cat "$lgjson"; printf ','
     printf '"resource":'; cat "$spjson"; printf '}'
   } > "$out"
   echo "wrote $out"
   local rps; rps=$(grep -o '"rps": [0-9.]*' "$lgjson" | head -1)
   local rss; rss=$(grep -o '"rss_steady_kb": [0-9]*' "$spjson")
-  echo "    -> engine=$engine pool_size=$pool_size ; $rps ; $rss ; fd_max $(grep -o '"fd_max": [0-9]*' "$spjson")"
+  echo "    -> mode=$PHP_MODE pool_size=$pool_size ; $rps ; $rss ; fd_max $(grep -o '"fd_max": [0-9]*' "$spjson")"
   stop_server
 }
 
-echo "workload=$WORKLOAD docroot=$DOCROOT engines=$ENGINES"
+echo "workload=$WORKLOAD docroot=$DOCROOT mode=$PHP_MODE"
 make_template
-for engine in $ENGINES; do
-  # Fresh instance per engine: the ONLY thing that changes across engines is
-  # this env var, inherited by every ephpm start_server spawns below.
-  export EPHPM_PHP__FPM_ENGINE="$engine"
-  CUR_RESULTS="$RESULTS/engine-$engine"
-  mkdir -p "$CUR_RESULTS"
-  echo "########## engine=$engine (EPHPM_PHP__FPM_ENGINE=$engine) ##########"
-  for cap in $CAPS; do
-    for n in $NS; do
-      one_point "$cap" "$n" "$engine"
-    done
+CUR_RESULTS="$RESULTS/mode-$PHP_MODE"
+mkdir -p "$CUR_RESULTS"
+echo "########## mode=$PHP_MODE ##########"
+for cap in $CAPS; do
+  for n in $NS; do
+    one_point "$cap" "$n"
   done
 done
-echo "sweep complete. results in $RESULTS/engine-{$(echo $ENGINES | tr ' ' ',')}"
+echo "sweep complete. results in $CUR_RESULTS"
