@@ -51,7 +51,7 @@ HISTORICAL_IMAGE="docker.io/ephpm/ephpm:v0.6.3-php8.5"
 # first appears in v0.8.6, and the v0.8.6/v0.8.7 images were published
 # 2026-09-01. The cluster suite's reference numbers in DB-BENCH.md were
 # recorded on v0.8.7-php8.5; a fresh run uses the newest published tag below.
-CURRENT_IMAGE="docker.io/ephpm/ephpm:v0.10.8-php8.5"
+CURRENT_IMAGE="docker.io/ephpm/ephpm:v0.20.0-php8.5"
 
 case "$SUITE" in
   cluster) DEFAULT_IMAGE="$CURRENT_IMAGE" ;;

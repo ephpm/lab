@@ -50,7 +50,7 @@ set -uo pipefail
 # is the entire reason the gate exists (see "GATES" below).
 # EPHPM_PERSITE_CLUSTER_IMAGE still points P2/P3 at a different build
 # than S/W/P1 when you need to.
-IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.10.8-php8.5}"
+IMG="${EPHPM_IMAGE:-docker.io/ephpm/ephpm:v0.20.0-php8.5}"
 PS_IMG="${EPHPM_PERSITE_CLUSTER_IMAGE:-$IMG}"
 
 OHA=ghcr.io/hatoo/oha:latest
